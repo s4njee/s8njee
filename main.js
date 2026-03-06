@@ -23,30 +23,61 @@ let monolith = new THREE.Group(); // placeholder until loaded
 monolith.position.y = 0;
 scene.add(monolith);
 
+// Model switching
+const models = [
+  { key: '1', name: 'Astolfo', path: '/astolfo.glb' },
+  { key: '2', name: 'Astolfo 2', path: '/astolfo2.glb' },
+];
+let currentModelIndex = -1;
 const loader = new GLTFLoader();
-loader.load('/astolfo.glb', (gltf) => {
-  const model = gltf.scene;
-  // Compute bounding box to normalize size
-  const box = new THREE.Box3().setFromObject(model);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const scale = (5 / maxDim) * 1.5625; // ~5 units tall * 1.25 * 1.25
-  model.scale.setScalar(scale);
-  // Re-center horizontally, sit on ground
-  box.setFromObject(model);
-  const center = new THREE.Vector3();
-  box.getCenter(center);
-  model.position.x -= center.x;
-  model.position.z -= center.z;
-  model.position.y -= box.min.y;
 
-  scene.remove(monolith);
-  monolith = model;
-  monolith.position.y += -1.2; // offset: adjust this value to move up/down
-  monolith.rotation.y = 0.35;
-  scene.add(monolith);
+function loadModel(index) {
+  if (index === currentModelIndex) return;
+  currentModelIndex = index;
+  const entry = models[index];
+  loader.load(entry.path, (gltf) => {
+    const model = gltf.scene;
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const scale = (5 / maxDim) * 1.5625;
+    model.scale.setScalar(scale);
+    box.setFromObject(model);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    model.position.x -= center.x;
+    model.position.z -= center.z;
+    model.position.y -= box.min.y;
+
+    scene.remove(monolith);
+    monolith = model;
+    monolith.position.y += -1.2;
+    monolith.rotation.y = 0.35;
+    scene.add(monolith);
+    updateLabel(entry.name);
+  });
+}
+
+// HUD label
+const label = document.createElement('div');
+label.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:#fff;font:14px/1 monospace;opacity:0;transition:opacity 0.3s;pointer-events:none;text-shadow:0 1px 4px #000';
+document.body.appendChild(label);
+let labelTimeout;
+function updateLabel(name) {
+  label.textContent = name;
+  label.style.opacity = '1';
+  clearTimeout(labelTimeout);
+  labelTimeout = setTimeout(() => label.style.opacity = '0', 1500);
+}
+
+window.addEventListener('keydown', (e) => {
+  const idx = models.findIndex(m => m.key === e.key);
+  if (idx !== -1) loadModel(idx);
 });
+
+// Load default
+loadModel(0);
 
 // Red snow particles
 const particleCount = 5000;
