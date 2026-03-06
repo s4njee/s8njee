@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
@@ -27,14 +28,29 @@ scene.add(monolith);
 const models = [
   { key: '1', name: 'Astolfo', path: '/astolfo.glb' },
   { key: '2', name: 'Astolfo 2', path: '/astolfo2.glb' },
+  { key: '3', name: 'Astolfo 3', path: '/astolfo3.glb' },
+  { key: '4', name: 'Astolfo 4', path: '/astolfo4.glb' },
+  { key: '5', name: 'Astolfo 5', path: '/astolfo5.glb' },
+  { key: '6', name: 'Astolfo 6', path: '/astolfo6.glb' },
+  { key: '7', name: 'Angel Devil', path: '/angeldevil1.glb' },
 ];
 let currentModelIndex = -1;
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
 const loader = new GLTFLoader();
+loader.setDRACOLoader(dracoLoader);
+const modelCache = new Map();
 
 function loadModel(index) {
   if (index === currentModelIndex) return;
   currentModelIndex = index;
   const entry = models[index];
+
+  if (modelCache.has(index)) {
+    swapModel(modelCache.get(index), entry.name);
+    return;
+  }
+
   loader.load(entry.path, (gltf) => {
     const model = gltf.scene;
     const box = new THREE.Box3().setFromObject(model);
@@ -49,14 +65,19 @@ function loadModel(index) {
     model.position.x -= center.x;
     model.position.z -= center.z;
     model.position.y -= box.min.y;
+    model.position.y += -1.2;
+    model.rotation.y = 0.35;
 
-    scene.remove(monolith);
-    monolith = model;
-    monolith.position.y += -1.2;
-    monolith.rotation.y = 0.35;
-    scene.add(monolith);
-    updateLabel(entry.name);
+    modelCache.set(index, model);
+    swapModel(model, entry.name);
   });
+}
+
+function swapModel(model, name) {
+  scene.remove(monolith);
+  monolith = model;
+  scene.add(monolith);
+  updateLabel(name);
 }
 
 // HUD label
@@ -74,6 +95,8 @@ function updateLabel(name) {
 window.addEventListener('keydown', (e) => {
   const idx = models.findIndex(m => m.key === e.key);
   if (idx !== -1) loadModel(idx);
+  if (e.key === 'ArrowRight') loadModel((currentModelIndex + 1) % models.length);
+  if (e.key === 'ArrowLeft') loadModel((currentModelIndex - 1 + models.length) % models.length);
 });
 
 // Load default
