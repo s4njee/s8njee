@@ -26,13 +26,7 @@ scene.add(monolith);
 
 // Model switching
 const models = [
-  { key: '1', name: 'Astolfo', path: '/astolfo.glb' },
-  { key: '2', name: 'Astolfo 2', path: '/astolfo2.glb' },
-  { key: '3', name: 'Astolfo 3', path: '/astolfo3.glb' },
-  { key: '4', name: 'Astolfo 4', path: '/astolfo4.glb' },
-  { key: '5', name: 'Astolfo 5', path: '/astolfo5.glb' },
-  { key: '6', name: 'Astolfo 6', path: '/astolfo6.glb' },
-  { key: '7', name: 'Angel Devil', path: '/angeldevil1.glb' },
+  { key: '1', name: 'Shinji', path: '/set2/shinji.glb' },
 ];
 let currentModelIndex = -1;
 const dracoLoader = new DRACOLoader();
@@ -161,15 +155,15 @@ function animate() {
   }
   particles.geometry.attributes.position.needsUpdate = true;
 
-  // Ember colors — update every 3rd frame
+  // RGB cycling colors — update every 3rd frame
   const t = Date.now() * 0.005;
-  const baseHue = 0.04 + Math.sin(t) * 0.02 + Math.sin(t * 2.3) * 0.01 + Math.sin(t * 5.7) * 0.01;
+  const baseHue = (t * 0.1) % 1.0;
   if (lightFrame % 3 === 0) {
     const cols = particles.geometry.attributes.color.array;
     const _c = new THREE.Color();
     for (let i = 0; i < particleCount; i++) {
       const flicker = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * 3 + i * 7.13));
-      const h = baseHue + Math.sin(i * 3.77 + t) * 0.03;
+      const h = (baseHue + i / particleCount + Math.sin(i * 0.5 + t) * 0.1) % 1.0;
       _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
       cols[i * 3] = _c.r;
       cols[i * 3 + 1] = _c.g;
