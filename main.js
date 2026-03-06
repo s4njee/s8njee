@@ -25,9 +25,25 @@ monolith.position.y = 0;
 scene.add(monolith);
 
 // Model switching
-const models = [
-  { key: '1', name: 'Shinji', path: '/set2/shinji.glb' },
+const sets = [
+  [
+    { key: '1', name: 'Astolfo', path: '/set1/astolfo.glb' },
+    { key: '2', name: 'Astolfo 2', path: '/set1/astolfo2.glb' },
+    { key: '3', name: 'Astolfo 3', path: '/set1/astolfo3.glb' },
+    { key: '4', name: 'Astolfo 4', path: '/set1/astolfo4.glb' },
+    { key: '5', name: 'Astolfo 5', path: '/set1/astolfo5.glb' },
+    { key: '6', name: 'Astolfo 6', path: '/set1/astolfo6.glb' },
+    { key: '7', name: 'Angel Devil', path: '/set1/angeldevil1.glb' },
+  ],
+  [
+    { key: '1', name: 'Shinji', path: '/set2/shinji.glb' },
+    { key: '2', name: 'Shinji 2', path: '/set2/shinji2.glb' },
+    { key: '3', name: 'Shinji 3', path: '/set2/shinji3.glb' },
+    { key: '4', name: 'Shinji 4', path: '/set2/shinji4.glb' },
+  ],
 ];
+let currentSetIndex = 1;
+let models = sets[1];
 let currentModelIndex = -1;
 const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
@@ -86,7 +102,33 @@ function updateLabel(name) {
   labelTimeout = setTimeout(() => label.style.opacity = '0', 1500);
 }
 
+// Set label
+const setLabel = document.createElement('div');
+setLabel.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);color:#fff;font:14px/1 monospace;opacity:0;transition:opacity 0.3s;pointer-events:none;text-shadow:0 1px 4px #000';
+document.body.appendChild(setLabel);
+let setLabelTimeout;
+function updateSetLabel() {
+  setLabel.textContent = `Set ${currentSetIndex + 1} of ${sets.length}`;
+  setLabel.style.opacity = '1';
+  clearTimeout(setLabelTimeout);
+  setLabelTimeout = setTimeout(() => setLabel.style.opacity = '0', 1500);
+}
+
+function switchSet(index) {
+  currentSetIndex = index;
+  models = sets[index];
+  modelCache.clear();
+  currentModelIndex = -1;
+  updateSetLabel();
+  loadModel(0);
+}
+
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    switchSet((currentSetIndex + 1) % sets.length);
+    return;
+  }
   const idx = models.findIndex(m => m.key === e.key);
   if (idx !== -1) loadModel(idx);
   if (e.key === 'ArrowRight') loadModel((currentModelIndex + 1) % models.length);
