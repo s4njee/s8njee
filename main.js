@@ -41,9 +41,13 @@ const sets = [
     { key: '3', name: 'Shinji 3', path: '/set2/shinji3.glb' },
     { key: '4', name: 'Shinji 4', path: '/set2/shinji4.glb' },
   ],
+  [
+    { key: '1', name: 'EVA-01', path: '/set3/eva01.glb' },
+    { key: '2', name: 'EVA-02', path: '/set3/eva02.glb' },
+  ],
 ];
-let currentSetIndex = 1;
-let models = sets[1];
+let currentSetIndex = 2;
+let models = sets[2];
 let currentModelIndex = -1;
 const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
