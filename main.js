@@ -45,6 +45,12 @@ const sets = [
     { key: '1', name: 'EVA-01', path: '/set3/eva01.glb' },
     { key: '2', name: 'EVA-02', path: '/set3/eva02.glb' },
   ],
+  [
+    { key: '1', name: 'X-Wing', path: '/set4/1xwing.glb' },
+    { key: '2', name: 'TIE Fighter', path: '/set4/2tie.glb' },
+    { key: '3', name: 'Star Destroyer', path: '/set4/3sd.glb' },
+    { key: '4', name: 'R90', path: '/set4/zr90.glb' },
+  ],
 ];
 let currentSetIndex = 2;
 let models = sets[2];
@@ -79,7 +85,7 @@ function loadModel(index) {
     model.position.x -= center.x;
     model.position.z -= center.z;
     model.position.y -= box.min.y;
-    model.position.y += -1.2;
+    model.position.y += currentSetIndex === 3 ? 0.8 : -1.2;
     model.rotation.y = 0.35;
 
     modelCache.set(index, model);
@@ -96,7 +102,7 @@ function swapModel(model, name) {
 
 // HUD label
 const label = document.createElement('div');
-label.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:#fff;font:14px/1 monospace;opacity:0;transition:opacity 0.3s;pointer-events:none;text-shadow:0 1px 4px #000';
+label.style.cssText = 'position:fixed;bottom:64px;left:50%;transform:translateX(-50%);color:#fff;font:14px/1 monospace;opacity:0;transition:opacity 0.3s;pointer-events:none;text-shadow:0 1px 4px #000';
 document.body.appendChild(label);
 let labelTimeout;
 function updateLabel(name) {
@@ -106,24 +112,35 @@ function updateLabel(name) {
   labelTimeout = setTimeout(() => label.style.opacity = '0', 1500);
 }
 
-// Set label
-const setLabel = document.createElement('div');
-setLabel.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);color:#fff;font:14px/1 monospace;opacity:0;transition:opacity 0.3s;pointer-events:none;text-shadow:0 1px 4px #000';
-document.body.appendChild(setLabel);
-let setLabelTimeout;
-function updateSetLabel() {
-  setLabel.textContent = `Set ${currentSetIndex + 1} of ${sets.length}`;
-  setLabel.style.opacity = '1';
-  clearTimeout(setLabelTimeout);
-  setLabelTimeout = setTimeout(() => setLabel.style.opacity = '0', 1500);
+// Set selector UI
+const setNav = document.createElement('div');
+setNav.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10';
+document.body.appendChild(setNav);
+const setButtons = [];
+for (let i = 0; i < sets.length; i++) {
+  const btn = document.createElement('div');
+  btn.textContent = i + 1;
+  btn.style.cssText = 'width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.3);color:#fff;font:14px/1 monospace;cursor:pointer;background:rgba(255,255,255,0.05);transition:all 0.2s;user-select:none';
+  btn.addEventListener('click', () => switchSet(i));
+  btn.addEventListener('mouseenter', () => { if (i !== currentSetIndex) btn.style.background = 'rgba(255,255,255,0.15)'; });
+  btn.addEventListener('mouseleave', () => { if (i !== currentSetIndex) btn.style.background = 'rgba(255,255,255,0.05)'; });
+  setNav.appendChild(btn);
+  setButtons.push(btn);
 }
+function updateSetButtons() {
+  setButtons.forEach((btn, i) => {
+    btn.style.background = i === currentSetIndex ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.05)';
+    btn.style.borderColor = i === currentSetIndex ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
+  });
+}
+updateSetButtons();
 
 function switchSet(index) {
   currentSetIndex = index;
   models = sets[index];
   modelCache.clear();
   currentModelIndex = -1;
-  updateSetLabel();
+  updateSetButtons();
   loadModel(0);
 }
 
@@ -201,22 +218,37 @@ function animate() {
   }
   particles.geometry.attributes.position.needsUpdate = true;
 
-  // RGB cycling colors — update every 3rd frame
+  // Per-set particle colors — update every 3rd frame
   const t = Date.now() * 0.005;
-  const baseHue = (t * 0.1) % 1.0;
+  let baseHue;
   if (lightFrame % 3 === 0) {
     const cols = particles.geometry.attributes.color.array;
     const _c = new THREE.Color();
     for (let i = 0; i < particleCount; i++) {
       const flicker = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * 3 + i * 7.13));
-      const h = (baseHue + i / particleCount + Math.sin(i * 0.5 + t) * 0.1) % 1.0;
-      _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
+      if (currentSetIndex === 0) {
+        // Set 1: red/orange embers
+        baseHue = 0.04 + Math.sin(t) * 0.02 + Math.sin(t * 2.3) * 0.01 + Math.sin(t * 5.7) * 0.01;
+        const h = baseHue + Math.sin(i * 3.77 + t) * 0.03;
+        _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
+      } else if (currentSetIndex === 1) {
+        // Set 2: RGB cycling
+        baseHue = (t * 0.1) % 1.0;
+        const h = (baseHue + i / particleCount + Math.sin(i * 0.5 + t) * 0.1) % 1.0;
+        _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
+      } else {
+        // Set 3: white
+        baseHue = 0;
+        const l = 0.6 + flicker * 0.35;
+        _c.setHSL(0, 0, l);
+      }
       cols[i * 3] = _c.r;
       cols[i * 3 + 1] = _c.g;
       cols[i * 3 + 2] = _c.b;
     }
     particles.geometry.attributes.color.needsUpdate = true;
   }
+  if (baseHue === undefined) baseHue = currentSetIndex === 0 ? 0.04 : currentSetIndex === 1 ? (t * 0.1) % 1.0 : 0;
   const hue = baseHue;
 
   // Find closest particles — update every 3rd frame
@@ -244,7 +276,7 @@ function animate() {
         light.position.set(p.x, p.y, p.z);
         const dist = Math.sqrt(p.distSq);
         light.intensity = (1 - dist / GLOW_RADIUS) * 6;
-        light.color.setHSL(hue, 1.0, 0.5);
+        light.color.setHSL(hue, (currentSetIndex >= 2) ? 0 : 1.0, 0.5);
       } else {
         light.intensity = 0;
       }
