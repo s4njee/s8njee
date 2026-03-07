@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import GUI from 'lil-gui';
+// import GUI from 'lil-gui';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
@@ -162,19 +162,79 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') loadModel((currentModelIndex - 1 + models.length) % models.length);
 });
 
-// Debug GUI
-const gui = new GUI();
-const debugParams = { rotX: 0, rotY: 0.35, rotZ: 0, posY: -1.2 };
-gui.add(debugParams, 'rotX', -Math.PI, Math.PI, 0.01).name('Rotation X').onChange(v => { monolith.rotation.x = v; });
-gui.add(debugParams, 'rotY', -Math.PI, Math.PI, 0.01).name('Rotation Y').onChange(v => { monolith.rotation.y = v; });
-gui.add(debugParams, 'rotZ', -Math.PI, Math.PI, 0.01).name('Rotation Z').onChange(v => { monolith.rotation.z = v; });
-gui.add(debugParams, 'posY', -5, 5, 0.1).name('Position Y').onChange(v => { monolith.position.y = v; });
-
 // Load default
 loadModel(0);
 
 const ambient = new THREE.AmbientLight(0xffffff, 0);
 scene.add(ambient);
+
+// Lighting mode: 0 = current (elevator/split), 1 = particles
+let lightingMode = 0;
+
+// Particle system (from shinji branch)
+const particleCount = 5000;
+const particleGeo = new THREE.BufferGeometry();
+const particlePositions = new Float32Array(particleCount * 3);
+const velocities = new Float32Array(particleCount);
+for (let i = 0; i < particleCount; i++) {
+  particlePositions[i * 3] = (Math.random() - 0.5) * 30;
+  particlePositions[i * 3 + 1] = Math.random() * 25;
+  particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 30;
+  velocities[i] = 0.01 + Math.random() * 0.03;
+}
+const particleColors = new Float32Array(particleCount * 3);
+particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+particleGeo.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
+const particleTexture = new THREE.TextureLoader().load('/textures/star_02.png');
+const particleMat = new THREE.PointsMaterial({ size: 0.18, sizeAttenuation: true, map: particleTexture, transparent: true, depthWrite: false, blending: THREE.NormalBlending, vertexColors: true });
+const particles = new THREE.Points(particleGeo, particleMat);
+particles.visible = false;
+scene.add(particles);
+
+// Glow lights for particle mode
+const glowLights = [];
+const glowCount = 12;
+const GLOW_RADIUS = 25;
+for (let i = 0; i < glowCount; i++) {
+  const light = new THREE.PointLight(0xffffff, 0, 8);
+  light.position.set(0, -10, 0);
+  scene.add(light);
+  glowLights.push(light);
+}
+let lightFrame = 0;
+
+// Lighting mode selector (top-left)
+const modeNav = document.createElement('div');
+modeNav.style.cssText = 'position:fixed;top:16px;left:16px;display:flex;gap:8px;z-index:10';
+document.body.appendChild(modeNav);
+const modeLabels = ['A', 'B'];
+const modeButtons = [];
+for (let i = 0; i < 2; i++) {
+  const btn = document.createElement('div');
+  btn.textContent = modeLabels[i];
+  btn.style.cssText = 'width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.3);color:#fff;font:14px/1 monospace;cursor:pointer;background:rgba(255,255,255,0.05);transition:all 0.2s;user-select:none';
+  btn.addEventListener('click', () => switchLightingMode(i));
+  btn.addEventListener('mouseenter', () => { if (i !== lightingMode) btn.style.background = 'rgba(255,255,255,0.15)'; });
+  btn.addEventListener('mouseleave', () => { if (i !== lightingMode) btn.style.background = 'rgba(255,255,255,0.05)'; });
+  modeNav.appendChild(btn);
+  modeButtons.push(btn);
+}
+function updateModeButtons() {
+  modeButtons.forEach((btn, i) => {
+    btn.style.background = i === lightingMode ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.05)';
+    btn.style.borderColor = i === lightingMode ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
+  });
+}
+updateModeButtons();
+
+function switchLightingMode(mode) {
+  lightingMode = mode;
+  particles.visible = mode === 1;
+  if (mode === 0) {
+    glowLights.forEach(l => l.intensity = 0);
+  }
+  updateModeButtons();
+}
 
 // Elevator ring light — single ring using a torus mesh for the glow
 const ringGeometry = new THREE.TorusGeometry(3, 0.05, 8, 64);
@@ -215,7 +275,88 @@ window.addEventListener('resize', () => {
 function animate() {
   controls.update();
 
-  if (currentSetIndex === 0) {
+  if (lightingMode === 1) {
+    // Particle lighting mode
+    ringLight.intensity = 0;
+    ringLight2.intensity = 0;
+    warmLight.intensity = 0;
+    coolLight.intensity = 0;
+    ambient.color.set(0xffffff);
+    ambient.intensity = 0.03;
+
+    const pos = particles.geometry.attributes.position.array;
+    for (let i = 0; i < particleCount; i++) {
+      pos[i * 3 + 1] -= velocities[i];
+      pos[i * 3] += Math.sin(Date.now() * 0.001 + i) * 0.002;
+      if (pos[i * 3 + 1] < -1) {
+        pos[i * 3 + 1] = 25;
+        pos[i * 3] = (Math.random() - 0.5) * 30;
+        pos[i * 3 + 2] = (Math.random() - 0.5) * 50;
+      }
+    }
+    particles.geometry.attributes.position.needsUpdate = true;
+
+    const t = Date.now() * 0.005;
+    let baseHue;
+    if (lightFrame % 3 === 0) {
+      const cols = particles.geometry.attributes.color.array;
+      const _c = new THREE.Color();
+      for (let i = 0; i < particleCount; i++) {
+        const flicker = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * 3 + i * 7.13));
+        if (currentSetIndex === 0) {
+          baseHue = 0.04 + Math.sin(t) * 0.02 + Math.sin(t * 2.3) * 0.01 + Math.sin(t * 5.7) * 0.01;
+          const h = baseHue + Math.sin(i * 3.77 + t) * 0.03;
+          _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
+        } else if (currentSetIndex === 1) {
+          baseHue = (t * 0.1) % 1.0;
+          const h = (baseHue + i / particleCount + Math.sin(i * 0.5 + t) * 0.1) % 1.0;
+          _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
+        } else {
+          baseHue = 0;
+          const l = 0.6 + flicker * 0.35;
+          _c.setHSL(0, 0, l);
+        }
+        cols[i * 3] = _c.r;
+        cols[i * 3 + 1] = _c.g;
+        cols[i * 3 + 2] = _c.b;
+      }
+      particles.geometry.attributes.color.needsUpdate = true;
+    }
+    if (baseHue === undefined) baseHue = currentSetIndex === 0 ? 0.04 : currentSetIndex === 1 ? (t * 0.1) % 1.0 : 0;
+    const hue = baseHue;
+
+    if (lightFrame % 3 === 0) {
+      const mx = monolith.position.x, my = monolith.position.y, mz = monolith.position.z;
+      const nearest = [];
+      const pos2 = particles.geometry.attributes.position.array;
+      for (let i = 0; i < particleCount; i++) {
+        const px = pos2[i * 3], py = pos2[i * 3 + 1], pz = pos2[i * 3 + 2];
+        const dx = px - mx, dy = py - my, dz = pz - mz;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        if (distSq < GLOW_RADIUS * GLOW_RADIUS) {
+          nearest.push({ x: px, y: py, z: pz, distSq });
+          if (nearest.length > glowCount * 3) {
+            nearest.sort((a, b) => a.distSq - b.distSq);
+            nearest.length = glowCount;
+          }
+        }
+      }
+      nearest.sort((a, b) => a.distSq - b.distSq);
+      for (let i = 0; i < glowCount; i++) {
+        const light = glowLights[i];
+        if (i < nearest.length) {
+          const p = nearest[i];
+          light.position.set(p.x, p.y, p.z);
+          const dist = Math.sqrt(p.distSq);
+          light.intensity = (1 - dist / GLOW_RADIUS) * 6;
+          light.color.setHSL(hue, (currentSetIndex >= 2) ? 0 : 1.0, 0.5);
+        } else {
+          light.intensity = 0;
+        }
+      }
+    }
+    lightFrame++;
+  } else if (currentSetIndex === 0) {
     // Set 1: neon pink/purple
     ringLight.intensity = 0;
     ringLight2.intensity = 0;
