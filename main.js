@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import GUI from 'lil-gui';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
@@ -31,9 +32,8 @@ const sets = [
     { key: '2', name: 'Astolfo 2', path: '/set1/astolfo2.glb' },
     { key: '3', name: 'Astolfo 3', path: '/set1/astolfo3.glb' },
     { key: '4', name: 'Astolfo 4', path: '/set1/astolfo4.glb' },
-    { key: '5', name: 'Astolfo 5', path: '/set1/astolfo5.glb' },
-    { key: '6', name: 'Astolfo 6', path: '/set1/astolfo6.glb' },
-    { key: '7', name: 'Angel Devil', path: '/set1/angeldevil1.glb' },
+    { key: '5', name: 'Astolfo 6', path: '/set1/astolfo6.glb' },
+    { key: '6', name: 'Angel Devil', path: '/set1/angeldevil1.glb' },
   ],
   [
     { key: '1', name: 'Shinji', path: '/set2/shinji.glb' },
@@ -86,7 +86,13 @@ function loadModel(index) {
     model.position.z -= center.z;
     model.position.y -= box.min.y;
     model.position.y += currentSetIndex === 3 ? 0.8 : -1.2;
-    model.rotation.y = 0.35;
+    if (currentSetIndex === 3) {
+      model.rotation.x = -0.0215;
+      model.rotation.y = 0.288;
+      model.rotation.z = 0.288;
+    } else {
+      model.rotation.y = 0.35;
+    }
 
     modelCache.set(index, model);
     swapModel(model, entry.name);
@@ -156,44 +162,47 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') loadModel((currentModelIndex - 1 + models.length) % models.length);
 });
 
+// Debug GUI
+const gui = new GUI();
+const debugParams = { rotX: 0, rotY: 0.35, rotZ: 0, posY: -1.2 };
+gui.add(debugParams, 'rotX', -Math.PI, Math.PI, 0.01).name('Rotation X').onChange(v => { monolith.rotation.x = v; });
+gui.add(debugParams, 'rotY', -Math.PI, Math.PI, 0.01).name('Rotation Y').onChange(v => { monolith.rotation.y = v; });
+gui.add(debugParams, 'rotZ', -Math.PI, Math.PI, 0.01).name('Rotation Z').onChange(v => { monolith.rotation.z = v; });
+gui.add(debugParams, 'posY', -5, 5, 0.1).name('Position Y').onChange(v => { monolith.position.y = v; });
+
 // Load default
 loadModel(0);
 
-// Red snow particles
-const particleCount = 5000;
-const particleGeo = new THREE.BufferGeometry();
-const positions = new Float32Array(particleCount * 3);
-const velocities = new Float32Array(particleCount);
-for (let i = 0; i < particleCount; i++) {
-  positions[i * 3] = (Math.random() - 0.5) * 30;
-  positions[i * 3 + 1] = Math.random() * 25;
-  positions[i * 3 + 2] = (Math.random() - 0.5) * 30;
-  velocities[i] = 0.01 + Math.random() * 0.03;
-}
-const colors = new Float32Array(particleCount * 3);
-particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-const particleTexture = new THREE.TextureLoader().load('/textures/star_02.png');
-const particleMat = new THREE.PointsMaterial({ size: 0.18, sizeAttenuation: true, map: particleTexture, transparent: true, depthWrite: false, blending: THREE.NormalBlending, vertexColors: true });
-const particles = new THREE.Points(particleGeo, particleMat);
-scene.add(particles);
-
-// Minimal ambient so the cross is only lit by "particle" glow
-const ambient = new THREE.AmbientLight(0xffffff, 0.03);
+const ambient = new THREE.AmbientLight(0xffffff, 0);
 scene.add(ambient);
 
-// Point lights that track the nearest particles to the cross
-const glowLights = [];
-const glowCount = 12; // balanced between quality and perf
-const GLOW_RADIUS = 25;
-for (let i = 0; i < glowCount; i++) {
-  const light = new THREE.PointLight(0xffffff, 0, 8);
-  light.position.set(0, -10, 0);
-  scene.add(light);
-  glowLights.push(light);
-}
+// Elevator ring light — single ring using a torus mesh for the glow
+const ringGeometry = new THREE.TorusGeometry(3, 0.05, 8, 64);
+const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+ringMesh.rotation.x = Math.PI / 2;
+ringMesh.visible = false;
+scene.add(ringMesh);
 
-let lightFrame = 0; // throttle light updates
+const ringLight = new THREE.PointLight(0xffffff, 3, 10);
+scene.add(ringLight);
+
+const ringLight2 = new THREE.PointLight(0xffffff, 3, 10);
+scene.add(ringLight2);
+
+const RING_TOP = 8;
+const RING_BOTTOM = -3;
+const RING_RANGE = RING_TOP - RING_BOTTOM;
+const RING_SPEED = 0.0004;
+
+// Two-tone split lighting for set 2 (portraits)
+const warmLight = new THREE.DirectionalLight(0xff8844, 0);
+warmLight.position.set(-3, 3, 2);
+scene.add(warmLight);
+
+const coolLight = new THREE.DirectionalLight(0x4488ff, 0);
+coolLight.position.set(3, 3, 2);
+scene.add(coolLight);
 
 // Resize
 window.addEventListener('resize', () => {
@@ -206,83 +215,57 @@ window.addEventListener('resize', () => {
 function animate() {
   controls.update();
 
-  const pos = particles.geometry.attributes.position.array;
-  for (let i = 0; i < particleCount; i++) {
-    pos[i * 3 + 1] -= velocities[i];
-    pos[i * 3] += Math.sin(Date.now() * 0.001 + i) * 0.002;
-    if (pos[i * 3 + 1] < -1) {
-      pos[i * 3 + 1] = 25;
-      pos[i * 3] = (Math.random() - 0.5) * 30;
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 50;
-    }
-  }
-  particles.geometry.attributes.position.needsUpdate = true;
+  if (currentSetIndex === 0) {
+    // Set 1: neon pink/purple
+    ringLight.intensity = 0;
+    ringLight2.intensity = 0;
+    warmLight.intensity = 0;
+    coolLight.intensity = 0;
+    ambient.color.set(0xcc44ff);
+    ambient.intensity = 1.0;
+    const angle = Date.now() * 0.0004;
+    // Pink from one side, purple from the other
+    warmLight.color.set(0xff1493);
+    coolLight.color.set(0x8800ff);
+    warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
+    coolLight.position.set(Math.cos(angle + Math.PI) * 4, 2, Math.sin(angle + Math.PI) * 4);
+    warmLight.intensity = 2;
+    coolLight.intensity = 2;
+  } else if (currentSetIndex === 1) {
+    // Set 2: two-tone split with slow rotation
+    ringLight.intensity = 0;
+    ringLight2.intensity = 0;
+    const angle = Date.now() * 0.0003;
+    warmLight.color.set(0xff8844);
+    coolLight.color.set(0x4488ff);
+    warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
+    coolLight.position.set(Math.cos(angle + Math.PI) * 4, 3, Math.sin(angle + Math.PI) * 4);
+    ambient.color.set(0xffffff);
+    ambient.intensity = 0.3;
+    warmLight.intensity = 1.5;
+    coolLight.intensity = 1.5;
+  } else {
+    // Other sets: elevator ring lights (y-axis)
+    ambient.color.set(0xffffff);
+    ambient.intensity = 0.15;
+    warmLight.intensity = 0;
+    coolLight.intensity = 0;
+    ringLight.distance = 30;
+    ringLight2.distance = 30;
+    const now = Date.now() * RING_SPEED;
+    const progress1 = now % 1.0;
+    const progress2 = (now + 0.5) % 1.0;
+    
+    const y1 = RING_TOP - progress1 * RING_RANGE;
+    const fade1 = Math.min(Math.min(progress1, 1 - progress1) * 5, 1);
+    ringLight.position.set(0, y1, 0);
+    ringLight.intensity = 5 * fade1;
 
-  // Per-set particle colors — update every 3rd frame
-  const t = Date.now() * 0.005;
-  let baseHue;
-  if (lightFrame % 3 === 0) {
-    const cols = particles.geometry.attributes.color.array;
-    const _c = new THREE.Color();
-    for (let i = 0; i < particleCount; i++) {
-      const flicker = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * 3 + i * 7.13));
-      if (currentSetIndex === 0) {
-        // Set 1: red/orange embers
-        baseHue = 0.04 + Math.sin(t) * 0.02 + Math.sin(t * 2.3) * 0.01 + Math.sin(t * 5.7) * 0.01;
-        const h = baseHue + Math.sin(i * 3.77 + t) * 0.03;
-        _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
-      } else if (currentSetIndex === 1) {
-        // Set 2: RGB cycling
-        baseHue = (t * 0.1) % 1.0;
-        const h = (baseHue + i / particleCount + Math.sin(i * 0.5 + t) * 0.1) % 1.0;
-        _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
-      } else {
-        // Set 3: white
-        baseHue = 0;
-        const l = 0.6 + flicker * 0.35;
-        _c.setHSL(0, 0, l);
-      }
-      cols[i * 3] = _c.r;
-      cols[i * 3 + 1] = _c.g;
-      cols[i * 3 + 2] = _c.b;
-    }
-    particles.geometry.attributes.color.needsUpdate = true;
+    const y2 = RING_TOP - progress2 * RING_RANGE;
+    const fade2 = Math.min(Math.min(progress2, 1 - progress2) * 5, 1);
+    ringLight2.position.set(0, y2, 0);
+    ringLight2.intensity = 5 * fade2;
   }
-  if (baseHue === undefined) baseHue = currentSetIndex === 0 ? 0.04 : currentSetIndex === 1 ? (t * 0.1) % 1.0 : 0;
-  const hue = baseHue;
-
-  // Find closest particles — update every 3rd frame
-  if (lightFrame % 3 === 0) {
-    const mx = monolith.position.x, my = monolith.position.y, mz = monolith.position.z;
-    const nearest = [];
-    for (let i = 0; i < particleCount; i++) {
-      const px = pos[i * 3], py = pos[i * 3 + 1], pz = pos[i * 3 + 2];
-      const dx = px - mx, dy = py - my, dz = pz - mz;
-      const distSq = dx * dx + dy * dy + dz * dz;
-      if (distSq < GLOW_RADIUS * GLOW_RADIUS) {
-        nearest.push({ x: px, y: py, z: pz, distSq });
-        if (nearest.length > glowCount * 3) {
-          nearest.sort((a, b) => a.distSq - b.distSq);
-          nearest.length = glowCount;
-        }
-      }
-    }
-    nearest.sort((a, b) => a.distSq - b.distSq);
-
-    for (let i = 0; i < glowCount; i++) {
-      const light = glowLights[i];
-      if (i < nearest.length) {
-        const p = nearest[i];
-        light.position.set(p.x, p.y, p.z);
-        const dist = Math.sqrt(p.distSq);
-        light.intensity = (1 - dist / GLOW_RADIUS) * 6;
-        light.color.setHSL(hue, (currentSetIndex >= 2) ? 0 : 1.0, 0.5);
-      } else {
-        light.intensity = 0;
-      }
-    }
-  }
-  lightFrame++;
 
   renderer.render(scene, camera);
 }
