@@ -6,14 +6,17 @@ import { Text } from 'troika-three-text';
 // import GUI from 'lil-gui';
 
 const scene = new THREE.Scene();
+document.body.style.background = '#111111';
 scene.background = new THREE.Color(0x111111);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position.set(0, 2.5, 14);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.domElement.style.position = 'relative';
+renderer.domElement.style.zIndex = '1';
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -229,6 +232,13 @@ function updateSetButtons() {
 }
 updateSetButtons();
 
+// Set4 Star Wars logo — fixed CSS background
+const swLogo = document.createElement('img');
+swLogo.src = '/set4/starwars_logo_yellow.svg';
+swLogo.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-55%);width:50vw;opacity:0.12;pointer-events:none;z-index:0;display:none';
+document.body.insertBefore(swLogo, document.body.firstChild);
+if (currentSetIndex === 3) swLogo.style.display = 'block';
+
 // Set5 3D title text
 const mahoragaText = new Text();
 mahoragaText.text = 'EIGHT-HANDLED SWORD\nDIVERGENT SILA\nDIVINE GENERAL\nMAHORAGA';
@@ -344,6 +354,8 @@ function switchSet(index) {
   modelCache.clear();
   currentModelIndex = -1;
   if (mahoragaText) mahoragaText.visible = index === 4;
+  swLogo.style.display = index === 3 ? 'block' : 'none';
+  scene.background = index === 3 ? null : new THREE.Color(0x111111);
   evaTitle.visible = false;
   evaSubtitle.visible = false;
   evaJpText.visible = false;
