@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { Text } from 'troika-three-text';
 // import GUI from 'lil-gui';
 
 const scene = new THREE.Scene();
@@ -44,8 +45,9 @@ const sets = [
   [
     { key: '1', name: 'EVA-01 Running', path: '/set3/eva01running.glb' },
     { key: '2', name: 'EVA-02 Running', path: '/set3/eva02running.glb' },
-    { key: '3', name: 'EVA-01', path: '/set3/eva01.glb' },
-    { key: '4', name: 'EVA-02', path: '/set3/eva02.glb' },
+    { key: '3', name: 'Angel Walk', path: '/set3/angelwalk.glb' },
+    { key: '4', name: 'EVA-01', path: '/set3/eva01.glb' },
+    { key: '5', name: 'EVA-02', path: '/set3/eva02.glb' },
   ],
   [
     { key: '1', name: 'X-Wing', path: '/set4/1xwing.glb' },
@@ -112,11 +114,17 @@ function loadModel(index) {
           mat.emissive.set(0x000000);
           mat.needsUpdate = true;
         }
-        // Reduce metalness for set3
-        if (currentSetIndex === 2) {
+        // Reduce metalness for set3 (except Angel Walk)
+        if (currentSetIndex === 2 && currentModelIndex !== 2) {
           mat.metalness = Math.min(mat.metalness, 0.2);
           mat.roughness = Math.max(mat.roughness, 0.6);
           if (mat.metalnessMap) mat.metalnessMap = null;
+          mat.needsUpdate = true;
+        }
+        // Glossy for Angel Walk
+        if (currentSetIndex === 2 && currentModelIndex === 2) {
+          mat.metalness = 0.9;
+          mat.roughness = 0.25;
           mat.needsUpdate = true;
         }
         // Anime-style flat shading for set5
@@ -213,11 +221,29 @@ function updateSetButtons() {
 }
 updateSetButtons();
 
+// Set5 3D title text
+const mahoragaText = new Text();
+mahoragaText.text = 'EIGHT-HANDLED SWORD\nDIVERGENT SILA\nDIVINE GENERAL\nMAHORAGA';
+mahoragaText.font = '/fonts/anton.ttf';
+mahoragaText.fontSize = 0.35;
+mahoragaText.lineHeight = 1.3;
+mahoragaText.color = 0xffffff;
+mahoragaText.anchorX = 'center';
+mahoragaText.textAlign = 'center';
+mahoragaText.anchorY = 'middle';
+mahoragaText.position.set(-3.5, 1.5, 0);
+mahoragaText.material.transparent = true;
+mahoragaText.material.opacity = 0.8;
+mahoragaText.visible = currentSetIndex === 4;
+mahoragaText.sync();
+scene.add(mahoragaText);
+
 function switchSet(index) {
   currentSetIndex = index;
   models = sets[index];
   modelCache.clear();
   currentModelIndex = -1;
+  if (mahoragaText) mahoragaText.visible = index === 4;
   updateSetButtons();
   loadModel(0);
 }
@@ -499,9 +525,14 @@ function animate() {
       const fade1 = Math.pow(1 - center, 4);
       dirRingLight.position.set(0, y1, 2);
       dirRingLight.intensity = 4 * fade1;
+    } else if (currentSetIndex === 2 && currentModelIndex === 2) {
+      // Angel Walk: ambient only, no rings
+      ambient.intensity = 2.8;
+      dirRingLight.intensity = 0;
+      dirRingLight2.intensity = 0;
     } else if (currentSetIndex === 2) {
       // EVA set: dual DirectionalLight rings
-      ambient.intensity = 0.12;
+      ambient.intensity = 0.2;
       const now = Date.now() * RING_SPEED;
       const progress1 = now % 1.0;
       const progress2 = (now + 0.5) % 1.0;
