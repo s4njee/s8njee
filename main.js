@@ -54,19 +54,33 @@ let monolith = new THREE.Group();
 scene.add(monolith);
 
 // ── Set definitions ──────────────────────────────────────────────────────────
-// Each set can define:
-//   models[]        - model entries with key/name/path
-//   defaultModel    - index to load on set switch (default 0)
-//   hidden          - hide from bottom nav (keyboard-only access)
-//   hotkey          - keyboard shortcut to access hidden sets
-//   defaultLighting - 0 = mode A, 1 = mode B (particles)
-//   materialStyle   - 'default' | 'reduced' | 'glossy' | 'anime'
-//   lightingStyle   - 'neon' | 'splitTone' | 'dualRing' | 'singleRing' | 'ambientOnly' | 'pointRing'
-//   logo            - { type: '3d'|'css', ... } for set logos
-//   overlayTexts    - per-model text overlays
+//
+// Central config for all model sets. Adding a new set is just adding an entry here.
+//
+// Schema:
+//   models[]           – array of { key, name, path } for each model variant
+//   buttonLabel        – label shown on the bottom nav button
+//   defaultModel       – index to load on set switch (default: 0)
+//   hidden             – if true, button is hidden from nav (keyboard-only via hotkey)
+//   hotkey             – key to press to switch to this set (for hidden sets)
+//   lightingStyle      – which lighting preset to use in mode A:
+//                        'neon'        → rotating pink/purple directional lights
+//                        'splitTone'   → warm/cool opposing directional lights
+//                        'dualRing'    → two directional lights sweeping vertically
+//                        'singleRing'  → single dramatic directional sweep
+//                        'pointRing'   → two point lights sweeping vertically
+//                        'ambientOnly' → flat ambient, no directional
+//   lightingOverrides  – per-model lighting style overrides { modelIndex: style }
+//   defaultLighting    – default lighting mode (0 = A, 1 = B/particles)
+//   particleHue        – particle color scheme in mode B: 'warm' | 'rainbow' | undefined (white)
+//   materialStyle      – global material preset: 'anime' strips all PBR for flat look
+//   materialOverrides  – array of { match(setIdx, modelIdx), metalness, roughness, clearMetalnessMap }
+//   positionYOffset    – vertical offset for model placement (default: -1.2)
+//   rotationOverride   – { x, y, z } rotation instead of default y=0.35
+//   nullBackground     – if true, scene.background = null (for CSS backgrounds like Star Wars logo)
 
 const SET_DEFS = [
-  { // 0: Astolfo
+  { // 0: Astolfo – neon pink/purple aesthetic
     models: [
       { key: '1', name: 'Astolfo', path: '/set1/astolfo.glb' },
       { key: '2', name: 'Astolfo 2', path: '/set1/astolfo2.glb' },
@@ -79,7 +93,7 @@ const SET_DEFS = [
     lightingStyle: 'neon',
     particleHue: 'warm',
   },
-  { // 1: Shinji
+  { // 1: Shinji – rainbow particle glow portraits
     models: [
       { key: '1', name: 'Shinji', path: '/set2/shinji.glb' },
       { key: '2', name: 'Shinji 2', path: '/set2/shinji2.glb' },
@@ -90,7 +104,7 @@ const SET_DEFS = [
     lightingStyle: 'splitTone',
     particleHue: 'rainbow',
   },
-  { // 2: EVA
+  { // 2: EVA – dual ring sweep, per-model material + lighting overrides
     models: [
       { key: '1', name: 'EVA-01 Running', path: '/set3/eva01running.glb' },
       { key: '2', name: 'EVA-02 Running', path: '/set3/eva02running.glb' },
@@ -100,15 +114,17 @@ const SET_DEFS = [
     ],
     buttonLabel: '3',
     lightingStyle: 'dualRing',
+    // EVA units get reduced metalness; Angel Walk (idx 2) gets glossy instead
     materialOverrides: [
       { match: (si, mi) => mi !== 2, metalness: 0.2, roughness: 0.6, clearMetalnessMap: true },
       { match: (si, mi) => mi === 2, metalness: 0.9, roughness: 0.25 },
     ],
+    // Angel Walk uses flat ambient instead of ring sweep
     lightingOverrides: {
-      2: 'ambientOnly', // Angel Walk
+      2: 'ambientOnly',
     },
   },
-  { // 3: Star Wars
+  { // 3: Star Wars – transparent background for CSS logo overlay, tilted rotation
     models: [
       { key: '1', name: 'X-Wing', path: '/set4/1xwing.glb' },
       { key: '2', name: 'TIE Fighter', path: '/set4/2tie.glb' },
@@ -121,7 +137,7 @@ const SET_DEFS = [
     rotationOverride: { x: -0.0215, y: 0.288, z: 0.288 },
     nullBackground: true,
   },
-  { // 4: Mahoraga
+  { // 4: Mahoraga – dramatic single ring sweep, flat anime shading
     models: [
       { key: '1', name: 'Mahoraga', path: '/set5/mahoraga.glb' },
     ],
@@ -129,7 +145,7 @@ const SET_DEFS = [
     lightingStyle: 'singleRing',
     materialStyle: 'anime',
   },
-  { // 5: One Piece (set6)
+  { // 5: One Piece (set6) – hidden, press '7' to access
     models: [
       { key: '1', name: 'Sanji', path: '/set6/sanji.glb' },
       { key: '2', name: 'Sanji 2', path: '/set6/sanji2.glb' },
@@ -144,7 +160,7 @@ const SET_DEFS = [
       { match: () => true, metalness: 0.05, roughness: 0.85, clearMetalnessMap: true },
     ],
   },
-  { // 6: Rimuru (set8)
+  { // 6: Rimuru (set8) – hidden, press '8' to access, flat anime shading
     models: [
       { key: '1', name: 'Rimuru', path: '/set8/rimuru.glb' },
       { key: '2', name: 'Rimuru 2', path: '/set8/rimuru2.glb' },
@@ -172,6 +188,9 @@ function currentModels() { return currentSetDef().models; }
 
 // ── Helpers: materials ───────────────────────────────────────────────────────
 
+// Walk the model's mesh tree and adjust PBR properties based on set config.
+// Emissive maps are always stripped so models respond to scene lighting instead
+// of having baked-in glow that ignores the ring/particle light effects.
 function applyMaterialOverrides(model, setIndex, modelIndex) {
   const def = SET_DEFS[setIndex];
 
@@ -179,14 +198,13 @@ function applyMaterialOverrides(model, setIndex, modelIndex) {
     if (!child.isMesh || !child.material) return;
     const mat = child.material;
 
-    // Always strip emissive maps
     if (mat.emissiveMap) {
       mat.emissiveMap = null;
       mat.emissive.set(0x000000);
       mat.needsUpdate = true;
     }
 
-    // Anime-style flat shading
+    // Anime-style: zero metalness, full roughness, no env maps → cel-shaded look
     if (def.materialStyle === 'anime') {
       mat.metalness = 0;
       mat.roughness = 1.0;
@@ -198,7 +216,8 @@ function applyMaterialOverrides(model, setIndex, modelIndex) {
       return;
     }
 
-    // Per-set material overrides
+    // Per-set overrides: clamp metalness down and roughness up (never make shinier
+    // than the original asset, only duller). First matching rule wins.
     if (def.materialOverrides) {
       for (const override of def.materialOverrides) {
         if (override.match(setIndex, modelIndex)) {
@@ -217,6 +236,8 @@ function applyMaterialOverrides(model, setIndex, modelIndex) {
 
 // ── Helpers: 3D text ─────────────────────────────────────────────────────────
 
+// Factory for Troika 3D text objects. All start hidden and get toggled
+// by updateTextVisibility() when the relevant set/model is active.
 function createText(opts) {
   const t = new Text();
   t.text = opts.text;
@@ -285,13 +306,15 @@ const allSceneTexts = [evaTitle, evaSubtitle, evaJpText, eva02Title, eva02Subtit
 
 // ── Logos ────────────────────────────────────────────────────────────────────
 
-// Star Wars CSS background logo
+// Star Wars logo sits behind the WebGL canvas as a CSS-positioned image
+// (visible when set3's nullBackground makes scene.background transparent)
 const swLogo = document.createElement('img');
 swLogo.src = '/set4/starwars_logo_yellow.svg';
 swLogo.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-55%);width:50vw;opacity:0.12;pointer-events:none;z-index:0;display:none';
 document.body.insertBefore(swLogo, document.body.firstChild);
 
-// 3D plane logos
+// 3D plane logos float in the scene (positioned like title cards).
+// They use MeshBasicMaterial so they're unaffected by scene lighting.
 function create3DLogo(texturePath, aspect, height, position, extraOpts = {}) {
   const texture = new THREE.TextureLoader().load(texturePath);
   const matOpts = { map: texture, transparent: true, opacity: 0.85, depthWrite: false, ...extraOpts };
@@ -332,6 +355,9 @@ function updateTextVisibility(modelIndex) {
 
 // ── Model loading ────────────────────────────────────────────────────────────
 
+// Load a model by index within the current set. Fades out the canvas,
+// loads the GLB (or pulls from cache), normalizes scale/position, applies
+// material overrides, then fades back in.
 function loadModel(index) {
   if (index === currentModelIndex) return;
   currentModelIndex = index;
@@ -361,7 +387,7 @@ function loadModel(index) {
     const model = gltf.scene;
     const animations = gltf.animations;
 
-    // Normalize scale
+    // Normalize: fit model into a ~7.8 unit tall bounding box (5 * 1.5625)
     const box = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3();
     box.getSize(size);
@@ -461,6 +487,7 @@ musicBtn.addEventListener('click', () => {
 
 const BTN_CSS = 'width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.3);color:#fff;font:14px/1 monospace;cursor:pointer;background:rgba(255,255,255,0.05);transition:all 0.2s;user-select:none';
 
+// Shared button styling — adapts to white mode automatically
 function styleButton(btn, active) {
   const c = whiteMode ? '0,0,0' : '255,255,255';
   btn.style.color = whiteMode ? '#000' : '#fff';
@@ -524,6 +551,8 @@ function switchLightingMode(mode) {
 
 // ── White mode ───────────────────────────────────────────────────────────────
 
+// Toggle via pressing '6'. Flips background, UI text, 3D text colors,
+// and button styling between dark (#111) and white themes.
 function applyWhiteMode() {
   document.body.style.background = whiteMode ? 'white' : '#111111';
   scene.background = new THREE.Color(whiteMode ? 0xffffff : 0x111111);
@@ -567,7 +596,7 @@ function switchSet(index) {
 
 // ── Input ────────────────────────────────────────────────────────────────────
 
-// Build hotkey map from set defs
+// Build hotkey map from SET_DEFS so hidden sets are accessible by key
 const hotkeyMap = {};
 SET_DEFS.forEach((def, i) => {
   if (def.hotkey) hotkeyMap[def.hotkey] = i;
@@ -596,7 +625,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') loadModel((currentModelIndex - 1 + models.length) % models.length);
 });
 
-// Double tap to cycle models (touch)
+// Double-tap to cycle models on touch devices (300ms threshold)
 let lastTap = 0;
 renderer.domElement.addEventListener('touchend', (e) => {
   const now = Date.now();
@@ -613,7 +642,9 @@ renderer.domElement.addEventListener('touchend', (e) => {
 const ambient = new THREE.AmbientLight(0xffffff, 0);
 scene.add(ambient);
 
-// Particle system
+// Particle system — 5000 falling particles with per-set color schemes.
+// Used in lighting mode B. Particles drift down and reset to top when they
+// fall below y=-1. Nearby particles cast colored glow via 6 point lights.
 const particleCount = 5000;
 const particleGeo = new THREE.BufferGeometry();
 const particlePositions = new Float32Array(particleCount * 3);
@@ -646,7 +677,7 @@ for (let i = 0; i < glowCount; i++) {
 let lightFrame = 0;
 const _tempColor = new THREE.Color();
 
-// Ring lights
+// Ring light mesh (torus) — currently hidden, kept for potential visual use
 const ringGeometry = new THREE.TorusGeometry(3, 0.05, 8, 64);
 const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
 const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
@@ -654,12 +685,13 @@ ringMesh.rotation.x = Math.PI / 2;
 ringMesh.visible = false;
 scene.add(ringMesh);
 
+// Point lights used by 'pointRing' style (set4/Star Wars, fallback)
 const ringLight = new THREE.PointLight(0xffffff, 3, 10);
 scene.add(ringLight);
 const ringLight2 = new THREE.PointLight(0xffffff, 3, 10);
 scene.add(ringLight2);
 
-// Directional ring lights
+// Directional lights used by 'dualRing' and 'singleRing' styles (EVA, Mahoraga, etc.)
 const dirRingLight = new THREE.DirectionalLight(0xffffff, 0);
 dirRingLight.position.set(0, 8, 0);
 dirRingLight.target.position.set(0, 0, 0);
@@ -672,11 +704,12 @@ dirRingLight2.target.position.set(0, 0, 0);
 scene.add(dirRingLight2);
 scene.add(dirRingLight2.target);
 
+// Ring sweep parameters — lights travel from RING_TOP to RING_BOTTOM
 const RING_TOP = 8, RING_BOTTOM = -3;
 const RING_RANGE = RING_TOP - RING_BOTTOM;
-const RING_SPEED = 0.0004;
+const RING_SPEED = 0.0004; // radians per ms
 
-// Split lighting
+// Split lighting — warm/cool opposing directional lights for 'splitTone' and 'neon'
 const warmLight = new THREE.DirectionalLight(0xff8844, 0);
 warmLight.position.set(-3, 3, 2);
 scene.add(warmLight);
@@ -694,6 +727,7 @@ window.addEventListener('resize', () => {
 
 // ── Lighting update functions ────────────────────────────────────────────────
 
+// Zero out all non-ambient lights before setting the active ones
 function resetAllLights() {
   ringLight.intensity = 0;
   ringLight2.intensity = 0;
@@ -782,12 +816,14 @@ function updateParticleLighting() {
   lightFrame++;
 }
 
+// Resolve the active lighting style, checking per-model overrides first
 function getLightingStyle() {
   const def = currentSetDef();
   if (def.lightingOverrides?.[currentModelIndex]) return def.lightingOverrides[currentModelIndex];
   return def.lightingStyle;
 }
 
+// Mode A lighting — dispatches to the appropriate lighting preset each frame
 function updateSceneLighting() {
   const style = getLightingStyle();
   ambient.color.set(0xffffff);
