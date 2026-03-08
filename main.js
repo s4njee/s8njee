@@ -17,7 +17,22 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.domElement.style.position = 'relative';
 renderer.domElement.style.zIndex = '1';
+renderer.domElement.style.transition = 'opacity 0.6s';
+renderer.domElement.style.opacity = '0';
 document.body.appendChild(renderer.domElement);
+
+// Loading progress bar (first load only)
+const progressContainer = document.createElement('div');
+progressContainer.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:200px;z-index:200';
+const progressBar = document.createElement('div');
+progressBar.style.cssText = 'width:0%;height:2px;background:#fff;transition:width 0.2s';
+const progressLabel = document.createElement('div');
+progressLabel.style.cssText = 'color:rgba(255,255,255,0.5);font:12px/1 monospace;text-align:center;margin-bottom:8px';
+progressLabel.textContent = 'loading';
+progressContainer.appendChild(progressLabel);
+progressContainer.appendChild(progressBar);
+document.body.appendChild(progressContainer);
+let firstLoad = true;
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 2.5, 0);
@@ -73,9 +88,10 @@ const modelCache = new Map();
 const clock = new THREE.Clock();
 let mixer = null;
 
-function loadModel(index) {
-  if (index === currentModelIndex) return;
-  currentModelIndex = index;
+function updateTextVisibility(index) {
+  if (typeof mahoragaText !== 'undefined') {
+    mahoragaText.visible = index >= 0 && currentSetIndex === 4;
+  }
   if (typeof evaTitle !== 'undefined') {
     evaTitle.visible = currentSetIndex === 2 && index === 0;
     evaSubtitle.visible = currentSetIndex === 2 && index === 0;
@@ -84,15 +100,36 @@ function loadModel(index) {
     eva02Subtitle.visible = currentSetIndex === 2 && index === 1;
     eva02JpText.visible = currentSetIndex === 2 && index === 1;
   }
+}
+
+function revealScene() {
+  renderer.domElement.style.opacity = '1';
+}
+
+function loadModel(index) {
+  if (index === currentModelIndex) return;
+  currentModelIndex = index;
+  renderer.domElement.style.opacity = '0';
+  updateTextVisibility(-1);
   const entry = models[index];
 
   if (modelCache.has(index)) {
-    const cached = modelCache.get(index);
-    swapModel(cached.model, entry.name, cached.animations);
+    setTimeout(() => {
+      const cached = modelCache.get(index);
+      swapModel(cached.model, entry.name, cached.animations);
+      updateTextVisibility(index);
+      revealScene();
+    }, 200);
     return;
   }
 
   loader.load(entry.path, (gltf) => {
+    if (firstLoad) {
+      firstLoad = false;
+      progressContainer.style.transition = 'opacity 0.4s';
+      progressContainer.style.opacity = '0';
+      setTimeout(() => progressContainer.remove(), 500);
+    }
     const model = gltf.scene;
     const animations = gltf.animations;
     const box = new THREE.Box3().setFromObject(model);
@@ -152,7 +189,17 @@ function loadModel(index) {
     });
 
     modelCache.set(index, { model, animations });
-    swapModel(model, entry.name, animations);
+    const doReveal = () => {
+      swapModel(model, entry.name, animations);
+      updateTextVisibility(index);
+      revealScene();
+    };
+    setTimeout(doReveal, 200);
+  }, (progress) => {
+    if (firstLoad && progress.total) {
+      const pct = Math.round((progress.loaded / progress.total) * 100);
+      progressBar.style.width = pct + '%';
+    }
   });
 }
 
@@ -353,7 +400,7 @@ function switchSet(index) {
   models = sets[index];
   modelCache.clear();
   currentModelIndex = -1;
-  if (mahoragaText) mahoragaText.visible = index === 4;
+  if (mahoragaText) mahoragaText.visible = false;
   swLogo.style.display = index === 3 ? 'block' : 'none';
   scene.background = index === 3 ? null : new THREE.Color(0x111111);
   evaTitle.visible = false;
@@ -376,6 +423,17 @@ window.addEventListener('keydown', (e) => {
   if (idx !== -1) loadModel(idx);
   if (e.key === 'ArrowRight') loadModel((currentModelIndex + 1) % models.length);
   if (e.key === 'ArrowLeft') loadModel((currentModelIndex - 1 + models.length) % models.length);
+});
+
+// Double tap to cycle models (touch devices only)
+let lastTap = 0;
+renderer.domElement.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  if (now - lastTap < 300) {
+    e.preventDefault();
+    loadModel((currentModelIndex + 1) % models.length);
+  }
+  lastTap = now;
 });
 
 // Load default
