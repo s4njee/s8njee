@@ -119,9 +119,11 @@ const SET_DEFS = [
       { match: (si, mi) => mi !== 2, metalness: 0.2, roughness: 0.6, clearMetalnessMap: true },
       { match: (si, mi) => mi === 2, metalness: 0.9, roughness: 0.25 },
     ],
-    // Angel Walk uses flat ambient instead of ring sweep
+    // Running models get streetlight effect; Angel Walk uses flat ambient
     lightingOverrides: {
-      2: 'ambientOnly',
+      0: 'streetlight',
+      1: 'streetlight',
+      2: 'streetlightSlow',
     },
   },
   { // 3: Star Wars – transparent background for CSS logo overlay, tilted rotation
@@ -142,7 +144,7 @@ const SET_DEFS = [
       { key: '1', name: 'Mahoraga', path: '/set5/mahoraga.glb' },
     ],
     buttonLabel: '✱',
-    lightingStyle: 'singleRing',
+    lightingStyle: 'streetlightSlow',
     materialStyle: 'anime',
   },
   { // 5: One Piece (set6) – hidden, press '7' to access
@@ -734,6 +736,14 @@ scene.add(ringLight);
 const ringLight2 = new THREE.PointLight(0xffffff, 3, 10);
 scene.add(ringLight2);
 
+// Streetlight point lights for set3 running models
+const streetLight1 = new THREE.PointLight(0xffeedd, 0, 15);
+streetLight1.position.set(-1.5, 6, 0);
+scene.add(streetLight1);
+const streetLight2 = new THREE.PointLight(0xffeedd, 0, 15);
+streetLight2.position.set(1.5, 6, 0);
+scene.add(streetLight2);
+
 // Directional lights used by 'dualRing' and 'singleRing' styles (EVA, Mahoraga, etc.)
 const dirRingLight = new THREE.DirectionalLight(0xffffff, 0);
 dirRingLight.position.set(0, 8, 0);
@@ -778,6 +788,8 @@ function resetAllLights() {
   dirRingLight2.intensity = 0;
   warmLight.intensity = 0;
   coolLight.intensity = 0;
+  streetLight1.intensity = 0;
+  streetLight2.intensity = 0;
 }
 
 function updateParticleLighting() {
@@ -927,6 +939,44 @@ function updateSceneLighting() {
       const center = Math.abs(p - 0.5) * 2;
       dirRingLight.position.set(0, RING_TOP - p * RING_RANGE, 2);
       dirRingLight.intensity = 4 * Math.pow(1 - center, 4);
+      break;
+    }
+
+    case 'streetlightSlow': {
+      ambient.intensity = 0.5;
+      const STREET_SPEED_S = 0.00012;
+      const STREET_FAR_S = 20, STREET_NEAR_S = -15;
+      const STREET_RANGE_S = STREET_FAR_S - STREET_NEAR_S;
+      const stS = Date.now() * STREET_SPEED_S;
+      const p1ss = stS % 1.0;
+      const p2ss = (stS + 0.5) % 1.0;
+      const z1s = STREET_FAR_S - p1ss * STREET_RANGE_S;
+      const z2s = STREET_FAR_S - p2ss * STREET_RANGE_S;
+      const falloff1s = Math.exp(-z1s * z1s / 25);
+      const falloff2s = Math.exp(-z2s * z2s / 25);
+      streetLight1.position.set(-1.5, 6, z1s);
+      streetLight2.position.set(1.5, 6, z2s);
+      streetLight1.intensity = 20 * falloff1s;
+      streetLight2.intensity = 20 * falloff2s;
+      break;
+    }
+
+    case 'streetlight': {
+      ambient.intensity = 0.5;
+      const STREET_SPEED = 0.0008;
+      const STREET_FAR = 15, STREET_NEAR = -10;
+      const STREET_RANGE = STREET_FAR - STREET_NEAR;
+      const st = Date.now() * STREET_SPEED;
+      const p1s = st % 1.0;
+      const p2s = (st + 0.5) % 1.0;
+      const z1 = STREET_FAR - p1s * STREET_RANGE;
+      const z2 = STREET_FAR - p2s * STREET_RANGE;
+      const falloff1 = Math.exp(-z1 * z1 / 18);
+      const falloff2 = Math.exp(-z2 * z2 / 18);
+      streetLight1.position.set(-1.5, 6, z1);
+      streetLight2.position.set(1.5, 6, z2);
+      streetLight1.intensity = 20 * falloff1;
+      streetLight2.intensity = 20 * falloff2;
       break;
     }
 
