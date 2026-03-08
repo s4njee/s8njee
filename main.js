@@ -3,7 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { Text } from 'troika-three-text';
-// import GUI from 'lil-gui';
+
+// ── Scene setup ──────────────────────────────────────────────────────────────
 
 const scene = new THREE.Scene();
 document.body.style.background = '#111111';
@@ -21,7 +22,13 @@ renderer.domElement.style.transition = 'opacity 0.6s';
 renderer.domElement.style.opacity = '0';
 document.body.appendChild(renderer.domElement);
 
-// Loading progress bar (first load only)
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 2.5, 0);
+controls.enableDamping = true;
+controls.update();
+
+// ── Loading progress ─────────────────────────────────────────────────────────
+
 const progressContainer = document.createElement('div');
 progressContainer.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:200px;z-index:200';
 const progressBar = document.createElement('div');
@@ -34,61 +41,8 @@ progressContainer.appendChild(progressBar);
 document.body.appendChild(progressContainer);
 let firstLoad = true;
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 2.5, 0);
-controls.enableDamping = true;
-controls.update();
+// ── Model loader ─────────────────────────────────────────────────────────────
 
-// Load Astolfo GLB model
-let monolith = new THREE.Group(); // placeholder until loaded
-monolith.position.y = 0;
-scene.add(monolith);
-
-// Model switching
-const sets = [
-  [
-    { key: '1', name: 'Astolfo', path: '/set1/astolfo.glb' },
-    { key: '2', name: 'Astolfo 2', path: '/set1/astolfo2.glb' },
-    { key: '3', name: 'Astolfo 3', path: '/set1/astolfo3.glb' },
-    { key: '4', name: 'Astolfo 4', path: '/set1/astolfo4.glb' },
-    { key: '5', name: 'Astolfo 6', path: '/set1/astolfo6.glb' },
-    { key: '6', name: 'Angel Devil', path: '/set1/angeldevil1.glb' },
-  ],
-  [
-    { key: '1', name: 'Shinji', path: '/set2/shinji.glb' },
-    { key: '2', name: 'Shinji 2', path: '/set2/shinji2.glb' },
-    { key: '3', name: 'Shinji 3', path: '/set2/shinji3.glb' },
-    { key: '4', name: 'Shinji 4', path: '/set2/shinji4.glb' },
-  ],
-  [
-    { key: '1', name: 'EVA-01 Running', path: '/set3/eva01running.glb' },
-    { key: '2', name: 'EVA-02 Running', path: '/set3/eva02running.glb' },
-    { key: '3', name: 'Angel Walk', path: '/set3/angelwalk.glb' },
-    { key: '4', name: 'EVA-01', path: '/set3/eva01.glb' },
-    { key: '5', name: 'EVA-02', path: '/set3/eva02.glb' },
-  ],
-  [
-    { key: '1', name: 'X-Wing', path: '/set4/1xwing.glb' },
-    { key: '2', name: 'TIE Fighter', path: '/set4/2tie.glb' },
-    { key: '3', name: 'Star Destroyer', path: '/set4/3sd.glb' },
-    { key: '4', name: 'R90', path: '/set4/zr90.glb' },
-  ],
-  [
-    { key: '1', name: 'Mahoraga', path: '/set5/mahoraga.glb' },
-  ],
-  [
-    { key: '1', name: 'Sanji', path: '/set6/sanji.glb' },
-    { key: '2', name: 'Sanji 2', path: '/set6/sanji2.glb' },
-  ],
-  [
-    { key: '1', name: 'Rimuru', path: '/set8/rimuru.glb' },
-    { key: '2', name: 'Rimuru 2', path: '/set8/rimuru2.glb' },
-    { key: '3', name: 'Rimuru 3', path: '/set8/rimuru3.glb' },
-  ],
-];
-let currentSetIndex = 2;
-let models = sets[2];
-let currentModelIndex = -1;
 const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
 const loader = new GLTFLoader();
@@ -96,37 +50,295 @@ loader.setDRACOLoader(dracoLoader);
 const modelCache = new Map();
 const clock = new THREE.Clock();
 let mixer = null;
+let monolith = new THREE.Group();
+scene.add(monolith);
 
-function updateTextVisibility(index) {
-  if (typeof mahoragaText !== 'undefined') {
-    mahoragaText.visible = index >= 0 && currentSetIndex === 4;
-  }
-  if (typeof opLogoMesh !== 'undefined') {
-    opLogoMesh.visible = index >= 0 && currentSetIndex === 5;
-  }
-  if (typeof rimuruLogoMesh !== 'undefined') {
-    rimuruLogoMesh.visible = index >= 0 && currentSetIndex === 6;
-  }
-  if (typeof evaTitle !== 'undefined') {
-    evaTitle.visible = currentSetIndex === 2 && index === 0;
-    evaSubtitle.visible = currentSetIndex === 2 && index === 0;
-    evaJpText.visible = currentSetIndex === 2 && index === 0;
-    eva02Title.visible = currentSetIndex === 2 && index === 1;
-    eva02Subtitle.visible = currentSetIndex === 2 && index === 1;
-    eva02JpText.visible = currentSetIndex === 2 && index === 1;
-  }
+// ── Set definitions ──────────────────────────────────────────────────────────
+// Each set can define:
+//   models[]        - model entries with key/name/path
+//   defaultModel    - index to load on set switch (default 0)
+//   hidden          - hide from bottom nav (keyboard-only access)
+//   hotkey          - keyboard shortcut to access hidden sets
+//   defaultLighting - 0 = mode A, 1 = mode B (particles)
+//   materialStyle   - 'default' | 'reduced' | 'glossy' | 'anime'
+//   lightingStyle   - 'neon' | 'splitTone' | 'dualRing' | 'singleRing' | 'ambientOnly' | 'pointRing'
+//   logo            - { type: '3d'|'css', ... } for set logos
+//   overlayTexts    - per-model text overlays
+
+const SET_DEFS = [
+  { // 0: Astolfo
+    models: [
+      { key: '1', name: 'Astolfo', path: '/set1/astolfo.glb' },
+      { key: '2', name: 'Astolfo 2', path: '/set1/astolfo2.glb' },
+      { key: '3', name: 'Astolfo 3', path: '/set1/astolfo3.glb' },
+      { key: '4', name: 'Astolfo 4', path: '/set1/astolfo4.glb' },
+      { key: '5', name: 'Astolfo 6', path: '/set1/astolfo6.glb' },
+      { key: '6', name: 'Angel Devil', path: '/set1/angeldevil1.glb' },
+    ],
+    buttonLabel: '1',
+    lightingStyle: 'neon',
+    particleHue: 'warm',
+  },
+  { // 1: Shinji
+    models: [
+      { key: '1', name: 'Shinji', path: '/set2/shinji.glb' },
+      { key: '2', name: 'Shinji 2', path: '/set2/shinji2.glb' },
+      { key: '3', name: 'Shinji 3', path: '/set2/shinji3.glb' },
+      { key: '4', name: 'Shinji 4', path: '/set2/shinji4.glb' },
+    ],
+    buttonLabel: '2',
+    lightingStyle: 'splitTone',
+    particleHue: 'rainbow',
+  },
+  { // 2: EVA
+    models: [
+      { key: '1', name: 'EVA-01 Running', path: '/set3/eva01running.glb' },
+      { key: '2', name: 'EVA-02 Running', path: '/set3/eva02running.glb' },
+      { key: '3', name: 'Angel Walk', path: '/set3/angelwalk.glb' },
+      { key: '4', name: 'EVA-01', path: '/set3/eva01.glb' },
+      { key: '5', name: 'EVA-02', path: '/set3/eva02.glb' },
+    ],
+    buttonLabel: '3',
+    lightingStyle: 'dualRing',
+    materialOverrides: [
+      { match: (si, mi) => mi !== 2, metalness: 0.2, roughness: 0.6, clearMetalnessMap: true },
+      { match: (si, mi) => mi === 2, metalness: 0.9, roughness: 0.25 },
+    ],
+    lightingOverrides: {
+      2: 'ambientOnly', // Angel Walk
+    },
+  },
+  { // 3: Star Wars
+    models: [
+      { key: '1', name: 'X-Wing', path: '/set4/1xwing.glb' },
+      { key: '2', name: 'TIE Fighter', path: '/set4/2tie.glb' },
+      { key: '3', name: 'Star Destroyer', path: '/set4/3sd.glb' },
+      { key: '4', name: 'R90', path: '/set4/zr90.glb' },
+    ],
+    buttonLabel: '4',
+    lightingStyle: 'pointRing',
+    positionYOffset: 0.8,
+    rotationOverride: { x: -0.0215, y: 0.288, z: 0.288 },
+    nullBackground: true,
+  },
+  { // 4: Mahoraga
+    models: [
+      { key: '1', name: 'Mahoraga', path: '/set5/mahoraga.glb' },
+    ],
+    buttonLabel: '✱',
+    lightingStyle: 'singleRing',
+    materialStyle: 'anime',
+  },
+  { // 5: One Piece (set6)
+    models: [
+      { key: '1', name: 'Sanji', path: '/set6/sanji.glb' },
+      { key: '2', name: 'Sanji 2', path: '/set6/sanji2.glb' },
+    ],
+    defaultModel: 1,
+    hidden: true,
+    hotkey: '7',
+    buttonLabel: '7',
+    lightingStyle: 'dualRing',
+    defaultLighting: 1,
+    materialOverrides: [
+      { match: () => true, metalness: 0.05, roughness: 0.85, clearMetalnessMap: true },
+    ],
+  },
+  { // 6: Rimuru (set8)
+    models: [
+      { key: '1', name: 'Rimuru', path: '/set8/rimuru.glb' },
+      { key: '2', name: 'Rimuru 2', path: '/set8/rimuru2.glb' },
+      { key: '3', name: 'Rimuru 3', path: '/set8/rimuru3.glb' },
+    ],
+    defaultModel: 2,
+    hidden: true,
+    hotkey: '8',
+    buttonLabel: '8',
+    lightingStyle: 'dualRing',
+    defaultLighting: 1,
+    materialStyle: 'anime',
+  },
+];
+
+// ── State ────────────────────────────────────────────────────────────────────
+
+let whiteMode = false;
+let currentSetIndex = 2;
+let currentModelIndex = -1;
+let lightingMode = 0;
+
+function currentSetDef() { return SET_DEFS[currentSetIndex]; }
+function currentModels() { return currentSetDef().models; }
+
+// ── Helpers: materials ───────────────────────────────────────────────────────
+
+function applyMaterialOverrides(model, setIndex, modelIndex) {
+  const def = SET_DEFS[setIndex];
+
+  model.traverse((child) => {
+    if (!child.isMesh || !child.material) return;
+    const mat = child.material;
+
+    // Always strip emissive maps
+    if (mat.emissiveMap) {
+      mat.emissiveMap = null;
+      mat.emissive.set(0x000000);
+      mat.needsUpdate = true;
+    }
+
+    // Anime-style flat shading
+    if (def.materialStyle === 'anime') {
+      mat.metalness = 0;
+      mat.roughness = 1.0;
+      mat.envMap = null;
+      mat.envMapIntensity = 0;
+      if (mat.metalnessMap) mat.metalnessMap = null;
+      if (mat.roughnessMap) mat.roughnessMap = null;
+      mat.needsUpdate = true;
+      return;
+    }
+
+    // Per-set material overrides
+    if (def.materialOverrides) {
+      for (const override of def.materialOverrides) {
+        if (override.match(setIndex, modelIndex)) {
+          mat.metalness = override.metalness !== undefined
+            ? Math.min(mat.metalness, override.metalness) : mat.metalness;
+          mat.roughness = override.roughness !== undefined
+            ? Math.max(mat.roughness, override.roughness) : mat.roughness;
+          if (override.clearMetalnessMap && mat.metalnessMap) mat.metalnessMap = null;
+          mat.needsUpdate = true;
+          break;
+        }
+      }
+    }
+  });
 }
 
-function revealScene() {
-  renderer.domElement.style.opacity = '1';
+// ── Helpers: 3D text ─────────────────────────────────────────────────────────
+
+function createText(opts) {
+  const t = new Text();
+  t.text = opts.text;
+  t.font = opts.font;
+  t.fontSize = opts.fontSize;
+  t.color = 0xffffff;
+  t.anchorX = opts.anchorX || 'left';
+  t.anchorY = opts.anchorY || 'bottom';
+  t.position.set(...opts.position);
+  t.material.transparent = true;
+  t.material.opacity = opts.opacity ?? 0.85;
+  if (opts.letterSpacing) t.letterSpacing = opts.letterSpacing;
+  if (opts.lineHeight) t.lineHeight = opts.lineHeight;
+  if (opts.textAlign) t.textAlign = opts.textAlign;
+  t.visible = false;
+  t.sync();
+  scene.add(t);
+  return t;
 }
+
+// ── Scene text overlays ──────────────────────────────────────────────────────
+
+// Mahoraga title
+const mahoragaText = createText({
+  text: 'EIGHT-HANDLED SWORD\nDIVERGENT SILA\nDIVINE GENERAL\nMAHORAGA',
+  font: '/fonts/anton.ttf', fontSize: 0.35, lineHeight: 1.3,
+  anchorX: 'center', textAlign: 'center', anchorY: 'middle',
+  position: [-3.5, 1.5, 0], opacity: 0.8,
+});
+
+// EVA-01 titles (left side)
+const evaTitle = createText({
+  text: 'EVANGELION UNIT-01', font: '/fonts/evangelion.ttf',
+  fontSize: 0.4, letterSpacing: 0.08, position: [-6.5, 1.2, 0],
+});
+const evaSubtitle = createText({
+  text: 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN',
+  font: '/fonts/evangelion.ttf', fontSize: 0.13, letterSpacing: 0.04,
+  anchorY: 'top', position: [-6.5, 1.15, 0], opacity: 0.6,
+});
+const evaJpText = createText({
+  text: '汎用ヒト型決戦兵器 人造人間エヴァンゲリオン初号機',
+  font: '/fonts/evangelion.ttf', fontSize: 0.13, letterSpacing: 0.02,
+  anchorY: 'top', position: [-6.5, 1.0, 0], opacity: 0.6,
+});
+
+// EVA-02 titles (right side)
+const eva02Title = createText({
+  text: 'EVANGELION UNIT-02', font: '/fonts/evangelion.ttf',
+  fontSize: 0.4, letterSpacing: 0.08, anchorX: 'right',
+  position: [6.5, 1.2, 0],
+});
+const eva02Subtitle = createText({
+  text: 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN',
+  font: '/fonts/evangelion.ttf', fontSize: 0.13, letterSpacing: 0.04,
+  anchorX: 'right', anchorY: 'top', position: [6.5, 1.15, 0], opacity: 0.6,
+});
+const eva02JpText = createText({
+  text: '汎用ヒト型決戦兵器 人造人間エヴァンゲリオン弐号機',
+  font: '/fonts/evangelion.ttf', fontSize: 0.13, letterSpacing: 0.02,
+  anchorX: 'right', anchorY: 'top', position: [6.5, 1.0, 0], opacity: 0.6,
+});
+
+// All scene text objects (for white mode toggling)
+const allSceneTexts = [evaTitle, evaSubtitle, evaJpText, eva02Title, eva02Subtitle, eva02JpText, mahoragaText];
+
+// ── Logos ────────────────────────────────────────────────────────────────────
+
+// Star Wars CSS background logo
+const swLogo = document.createElement('img');
+swLogo.src = '/set4/starwars_logo_yellow.svg';
+swLogo.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-55%);width:50vw;opacity:0.12;pointer-events:none;z-index:0;display:none';
+document.body.insertBefore(swLogo, document.body.firstChild);
+
+// 3D plane logos
+function create3DLogo(texturePath, aspect, height, position, extraOpts = {}) {
+  const texture = new THREE.TextureLoader().load(texturePath);
+  const matOpts = { map: texture, transparent: true, opacity: 0.85, depthWrite: false, ...extraOpts };
+  const mat = new THREE.MeshBasicMaterial(matOpts);
+  const geo = new THREE.PlaneGeometry(height * aspect, height);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(...position);
+  mesh.visible = false;
+  scene.add(mesh);
+  return mesh;
+}
+
+const opLogoMesh = create3DLogo('/set6/onepiece_logo.png', 1600 / 740, 3.0, [-4.5, 7.0, -3]);
+const rimuruLogoMesh = create3DLogo('/set8/rimuru_logo.png', 900 / 615, 3.0, [-3.5, 7.0, -3], { alphaTest: 0.01 });
+
+// Map set index → logo mesh (for visibility toggling)
+const setLogos = { 5: opLogoMesh, 6: rimuruLogoMesh };
+
+// ── Text/logo visibility ────────────────────────────────────────────────────
+
+function updateTextVisibility(modelIndex) {
+  const show = modelIndex >= 0;
+  mahoragaText.visible = show && currentSetIndex === 4;
+
+  // 3D logos
+  for (const [idx, mesh] of Object.entries(setLogos)) {
+    mesh.visible = show && currentSetIndex === Number(idx);
+  }
+
+  // EVA titles
+  evaTitle.visible = currentSetIndex === 2 && modelIndex === 0;
+  evaSubtitle.visible = currentSetIndex === 2 && modelIndex === 0;
+  evaJpText.visible = currentSetIndex === 2 && modelIndex === 0;
+  eva02Title.visible = currentSetIndex === 2 && modelIndex === 1;
+  eva02Subtitle.visible = currentSetIndex === 2 && modelIndex === 1;
+  eva02JpText.visible = currentSetIndex === 2 && modelIndex === 1;
+}
+
+// ── Model loading ────────────────────────────────────────────────────────────
 
 function loadModel(index) {
   if (index === currentModelIndex) return;
   currentModelIndex = index;
   renderer.domElement.style.opacity = '0';
   updateTextVisibility(-1);
-  const entry = models[index];
+  const entry = currentModels()[index];
+  const def = currentSetDef();
 
   if (modelCache.has(index)) {
     setTimeout(() => {
@@ -145,95 +357,82 @@ function loadModel(index) {
       progressContainer.style.opacity = '0';
       setTimeout(() => progressContainer.remove(), 500);
     }
+
     const model = gltf.scene;
     const animations = gltf.animations;
+
+    // Normalize scale
     const box = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3();
     box.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const scale = (5 / maxDim) * 1.5625;
+    const scale = (5 / Math.max(size.x, size.y, size.z)) * 1.5625;
     model.scale.setScalar(scale);
+
+    // Center horizontally, place on ground
     box.setFromObject(model);
     const center = new THREE.Vector3();
     box.getCenter(center);
     model.position.x -= center.x;
     model.position.z -= center.z;
     model.position.y -= box.min.y;
-    model.position.y += currentSetIndex === 3 ? 0.8 : -1.2;
-    if (currentSetIndex === 3) {
-      model.rotation.x = -0.0215;
-      model.rotation.y = 0.288;
-      model.rotation.z = 0.288;
+    model.position.y += def.positionYOffset ?? -1.2;
+
+    // Rotation
+    if (def.rotationOverride) {
+      model.rotation.x = def.rotationOverride.x;
+      model.rotation.y = def.rotationOverride.y;
+      model.rotation.z = def.rotationOverride.z;
     } else {
       model.rotation.y = 0.35;
     }
 
-    // Strip emissive maps so model responds to scene lighting
-    model.traverse((child) => {
-      if (child.isMesh && child.material) {
-        const mat = child.material;
-        if (mat.emissiveMap) {
-          mat.emissiveMap = null;
-          mat.emissive.set(0x000000);
-          mat.needsUpdate = true;
-        }
-        // Reduce metalness for set3 (except Angel Walk) and set6
-        if ((currentSetIndex === 2 && currentModelIndex !== 2) || currentSetIndex === 5) {
-          mat.metalness = Math.min(mat.metalness, currentSetIndex === 5 ? 0.05 : 0.2);
-          mat.roughness = Math.max(mat.roughness, currentSetIndex === 5 ? 0.85 : 0.6);
-          if (mat.metalnessMap) mat.metalnessMap = null;
-          mat.needsUpdate = true;
-        }
-        // Glossy for Angel Walk
-        if (currentSetIndex === 2 && currentModelIndex === 2) {
-          mat.metalness = 0.9;
-          mat.roughness = 0.25;
-          mat.needsUpdate = true;
-        }
-        // Anime-style flat shading for set5 & set8
-        if (currentSetIndex === 4 || currentSetIndex === 6) {
-          mat.metalness = 0;
-          mat.roughness = 1.0;
-          mat.envMap = null;
-          mat.envMapIntensity = 0;
-          if (mat.metalnessMap) mat.metalnessMap = null;
-          if (mat.roughnessMap) mat.roughnessMap = null;
-          mat.needsUpdate = true;
-        }
-      }
-    });
+    // Material overrides
+    applyMaterialOverrides(model, currentSetIndex, index);
 
     modelCache.set(index, { model, animations });
-    const doReveal = () => {
+    setTimeout(() => {
       swapModel(model, entry.name, animations);
       updateTextVisibility(index);
       revealScene();
-    };
-    setTimeout(doReveal, 200);
+    }, 200);
   }, (progress) => {
     if (firstLoad && progress.total) {
-      const pct = Math.round((progress.loaded / progress.total) * 100);
-      progressBar.style.width = pct + '%';
+      progressBar.style.width = Math.round((progress.loaded / progress.total) * 100) + '%';
     }
   });
 }
 
 function swapModel(model, name, animations) {
-  if (mixer) {
-    mixer.stopAllAction();
-    mixer = null;
-  }
+  if (mixer) { mixer.stopAllAction(); mixer = null; }
   scene.remove(monolith);
   monolith = model;
   scene.add(monolith);
-  if (animations && animations.length > 0) {
+  if (animations?.length > 0) {
     mixer = new THREE.AnimationMixer(model);
     animations.forEach((clip) => mixer.clipAction(clip).play());
   }
   updateLabel(name);
 }
 
-// Music toggle
+function revealScene() {
+  renderer.domElement.style.opacity = '1';
+}
+
+// ── UI: HUD label ────────────────────────────────────────────────────────────
+
+const label = document.createElement('div');
+label.style.cssText = 'position:fixed;bottom:64px;left:50%;transform:translateX(-50%);color:#fff;font:14px/1 monospace;opacity:0;transition:opacity 0.3s;pointer-events:none;text-shadow:0 1px 4px #000';
+document.body.appendChild(label);
+let labelTimeout;
+function updateLabel(name) {
+  label.textContent = name;
+  label.style.opacity = '1';
+  clearTimeout(labelTimeout);
+  labelTimeout = setTimeout(() => label.style.opacity = '0', 1500);
+}
+
+// ── UI: Music toggle ─────────────────────────────────────────────────────────
+
 const musicBtn = document.createElement('div');
 musicBtn.textContent = '♪';
 musicBtn.style.cssText = 'position:fixed;top:16px;right:48px;color:rgba(255,255,255,0.5);font-size:60px;cursor:pointer;z-index:100;user-select:none;transition:color 0.2s,text-shadow 0.2s';
@@ -246,248 +445,175 @@ bgm.loop = true;
 let musicPlaying = false;
 
 musicBtn.addEventListener('click', () => {
+  musicPlaying = !musicPlaying;
   if (musicPlaying) {
-    bgm.pause();
-    musicPlaying = false;
-    musicBtn.style.color = 'rgba(255,255,255,0.5)';
-    musicBtn.style.textShadow = 'none';
-  } else {
     bgm.play();
-    musicPlaying = true;
     musicBtn.style.color = '#fff';
     musicBtn.style.textShadow = '0 0 8px rgba(255,255,255,0.6)';
+  } else {
+    bgm.pause();
+    musicBtn.style.color = 'rgba(255,255,255,0.5)';
+    musicBtn.style.textShadow = 'none';
   }
 });
 
-// HUD label
-const label = document.createElement('div');
-label.style.cssText = 'position:fixed;bottom:64px;left:50%;transform:translateX(-50%);color:#fff;font:14px/1 monospace;opacity:0;transition:opacity 0.3s;pointer-events:none;text-shadow:0 1px 4px #000';
-document.body.appendChild(label);
-let labelTimeout;
-function updateLabel(name) {
-  label.textContent = name;
-  label.style.opacity = '1';
-  clearTimeout(labelTimeout);
-  labelTimeout = setTimeout(() => label.style.opacity = '0', 1500);
+// ── UI: Button helpers ───────────────────────────────────────────────────────
+
+const BTN_CSS = 'width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.3);color:#fff;font:14px/1 monospace;cursor:pointer;background:rgba(255,255,255,0.05);transition:all 0.2s;user-select:none';
+
+function styleButton(btn, active) {
+  const c = whiteMode ? '0,0,0' : '255,255,255';
+  btn.style.color = whiteMode ? '#000' : '#fff';
+  btn.style.background = `rgba(${c},${active ? (whiteMode ? 0.15 : 0.25) : 0.05})`;
+  btn.style.borderColor = `rgba(${c},${active ? 0.7 : 0.3})`;
 }
 
-// Set selector UI
+// ── UI: Set selector ─────────────────────────────────────────────────────────
+
 const setNav = document.createElement('div');
 setNav.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10';
 document.body.appendChild(setNav);
 const setButtons = [];
-for (let i = 0; i < sets.length; i++) {
+
+SET_DEFS.forEach((def, i) => {
   const btn = document.createElement('div');
-  btn.textContent = i === 4 ? '✱' : i === 5 ? '7' : i === 6 ? '8' : i + 1;
-  btn.style.cssText = 'width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.3);color:#fff;font:14px/1 monospace;cursor:pointer;background:rgba(255,255,255,0.05);transition:all 0.2s;user-select:none';
-  // Hide set7 and set8 buttons (accessible via keyboard only)
-  if (i === 5 || i === 6) btn.style.display = 'none';
+  btn.textContent = def.buttonLabel;
+  btn.style.cssText = BTN_CSS;
+  if (def.hidden) btn.style.display = 'none';
   btn.addEventListener('click', () => switchSet(i));
-  btn.addEventListener('mouseenter', () => { if (i !== currentSetIndex) btn.style.background = 'rgba(255,255,255,0.15)'; });
-  btn.addEventListener('mouseleave', () => { if (i !== currentSetIndex) btn.style.background = 'rgba(255,255,255,0.05)'; });
+  btn.addEventListener('mouseenter', () => { if (i !== currentSetIndex) styleButton(btn, false); });
+  btn.addEventListener('mouseleave', () => { if (i !== currentSetIndex) styleButton(btn, false); });
   setNav.appendChild(btn);
   setButtons.push(btn);
-}
+});
+
 function updateSetButtons() {
-  setButtons.forEach((btn, i) => {
-    btn.style.background = i === currentSetIndex ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.05)';
-    btn.style.borderColor = i === currentSetIndex ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
-  });
+  setButtons.forEach((btn, i) => styleButton(btn, i === currentSetIndex));
 }
 updateSetButtons();
 
-// Set4 Star Wars logo — fixed CSS background
-const swLogo = document.createElement('img');
-swLogo.src = '/set4/starwars_logo_yellow.svg';
-swLogo.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-55%);width:50vw;opacity:0.12;pointer-events:none;z-index:0;display:none';
-document.body.insertBefore(swLogo, document.body.firstChild);
-if (currentSetIndex === 3) swLogo.style.display = 'block';
+// ── UI: Lighting mode selector ───────────────────────────────────────────────
 
-// Set6 One Piece logo — 3D plane in scene (top-left like EVA titles)
-const opLogoTexture = new THREE.TextureLoader().load('/set6/onepiece_logo.png');
-const opLogoMat = new THREE.MeshBasicMaterial({ map: opLogoTexture, transparent: true, opacity: 0.85, depthWrite: false });
-const opLogoAspect = 1600 / 740; // approximate aspect ratio of the logo image
-const opLogoHeight = 3.0;
-const opLogoGeo = new THREE.PlaneGeometry(opLogoHeight * opLogoAspect, opLogoHeight);
-const opLogoMesh = new THREE.Mesh(opLogoGeo, opLogoMat);
-opLogoMesh.position.set(-4.5, 7.0, -3);
-opLogoMesh.visible = false;
-scene.add(opLogoMesh);
+const modeNav = document.createElement('div');
+modeNav.style.cssText = 'position:fixed;top:16px;left:16px;display:flex;gap:8px;z-index:10';
+document.body.appendChild(modeNav);
+const modeButtons = [];
 
-// Set8 Rimuru logo — 3D plane in scene (top-left like OP logo)
-const rimuruLogoTexture = new THREE.TextureLoader().load('/set8/rimuru_logo.png');
-const rimuruLogoMat = new THREE.MeshBasicMaterial({ map: rimuruLogoTexture, transparent: true, opacity: 0.85, depthWrite: false, alphaTest: 0.01 });
-const rimuruLogoAspect = 900 / 615;
-const rimuruLogoHeight = 3.0;
-const rimuruLogoGeo = new THREE.PlaneGeometry(rimuruLogoHeight * rimuruLogoAspect, rimuruLogoHeight);
-const rimuruLogoMesh = new THREE.Mesh(rimuruLogoGeo, rimuruLogoMat);
-rimuruLogoMesh.position.set(-3.5, 7.0, -3);
-rimuruLogoMesh.visible = false;
-scene.add(rimuruLogoMesh);
+['A', 'B'].forEach((lbl, i) => {
+  const btn = document.createElement('div');
+  btn.textContent = lbl;
+  btn.style.cssText = BTN_CSS;
+  btn.addEventListener('click', () => switchLightingMode(i));
+  btn.addEventListener('mouseenter', () => { if (i !== lightingMode) styleButton(btn, false); });
+  btn.addEventListener('mouseleave', () => { if (i !== lightingMode) styleButton(btn, false); });
+  modeNav.appendChild(btn);
+  modeButtons.push(btn);
+});
 
-// Set5 3D title text
-const mahoragaText = new Text();
-mahoragaText.text = 'EIGHT-HANDLED SWORD\nDIVERGENT SILA\nDIVINE GENERAL\nMAHORAGA';
-mahoragaText.font = '/fonts/anton.ttf';
-mahoragaText.fontSize = 0.35;
-mahoragaText.lineHeight = 1.3;
-mahoragaText.color = 0xffffff;
-mahoragaText.anchorX = 'center';
-mahoragaText.textAlign = 'center';
-mahoragaText.anchorY = 'middle';
-mahoragaText.position.set(-3.5, 1.5, 0);
-mahoragaText.material.transparent = true;
-mahoragaText.material.opacity = 0.8;
-mahoragaText.visible = currentSetIndex === 4;
-mahoragaText.sync();
-scene.add(mahoragaText);
+function updateModeButtons() {
+  modeButtons.forEach((btn, i) => styleButton(btn, i === lightingMode));
+}
+updateModeButtons();
 
-// Set3 model 0 (EVA-01 Running) title text
-const evaTitle = new Text();
-evaTitle.text = 'EVANGELION UNIT-01';
-evaTitle.font = '/fonts/evangelion.ttf';
-evaTitle.fontSize = 0.4;
-evaTitle.letterSpacing = 0.08;
-evaTitle.color = 0xffffff;
-evaTitle.anchorX = 'left';
-evaTitle.anchorY = 'bottom';
-evaTitle.position.set(-6.5, 1.2, 0);
-evaTitle.material.transparent = true;
-evaTitle.material.opacity = 0.85;
-evaTitle.visible = currentSetIndex === 2 && currentModelIndex === 0;
-evaTitle.sync();
-scene.add(evaTitle);
+function switchLightingMode(mode) {
+  lightingMode = mode;
+  particles.visible = mode === 1;
+  if (mode === 0) glowLights.forEach(l => l.intensity = 0);
+  updateModeButtons();
+}
 
-const evaSubtitle = new Text();
-evaSubtitle.text = 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN';
-evaSubtitle.font = '/fonts/evangelion.ttf';
-evaSubtitle.fontSize = 0.13;
-evaSubtitle.letterSpacing = 0.04;
-evaSubtitle.color = 0xffffff;
-evaSubtitle.anchorX = 'left';
-evaSubtitle.anchorY = 'top';
-evaSubtitle.position.set(-6.5, 1.15, 0);
-evaSubtitle.material.transparent = true;
-evaSubtitle.material.opacity = 0.6;
-evaSubtitle.visible = currentSetIndex === 2 && currentModelIndex === 0;
-evaSubtitle.sync();
-scene.add(evaSubtitle);
+// ── White mode ───────────────────────────────────────────────────────────────
 
-const evaJpText = new Text();
-evaJpText.text = '汎用ヒト型決戦兵器 人造人間エヴァンゲリオン初号機';
-evaJpText.font = '/fonts/evangelion.ttf';
-evaJpText.fontSize = 0.13;
-evaJpText.letterSpacing = 0.02;
-evaJpText.color = 0xffffff;
-evaJpText.anchorX = 'left';
-evaJpText.anchorY = 'top';
-evaJpText.position.set(-6.5, 1.0, 0);
-evaJpText.material.transparent = true;
-evaJpText.material.opacity = 0.6;
-evaJpText.visible = currentSetIndex === 2 && currentModelIndex === 0;
-evaJpText.sync();
-scene.add(evaJpText);
+function applyWhiteMode() {
+  document.body.style.background = whiteMode ? 'white' : '#111111';
+  scene.background = new THREE.Color(whiteMode ? 0xffffff : 0x111111);
 
-// Set3 model 1 (EVA-02 Running) title text — right side
-const eva02Title = new Text();
-eva02Title.text = 'EVANGELION UNIT-02';
-eva02Title.font = '/fonts/evangelion.ttf';
-eva02Title.fontSize = 0.4;
-eva02Title.letterSpacing = 0.08;
-eva02Title.color = 0xffffff;
-eva02Title.anchorX = 'right';
-eva02Title.anchorY = 'bottom';
-eva02Title.position.set(6.5, 1.2, 0);
-eva02Title.material.transparent = true;
-eva02Title.material.opacity = 0.85;
-eva02Title.visible = currentSetIndex === 2 && currentModelIndex === 1;
-eva02Title.sync();
-scene.add(eva02Title);
+  const textColor = whiteMode ? '#000' : '#fff';
+  label.style.color = textColor;
+  musicBtn.style.color = textColor;
 
-const eva02Subtitle = new Text();
-eva02Subtitle.text = 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN';
-eva02Subtitle.font = '/fonts/evangelion.ttf';
-eva02Subtitle.fontSize = 0.13;
-eva02Subtitle.letterSpacing = 0.04;
-eva02Subtitle.color = 0xffffff;
-eva02Subtitle.anchorX = 'right';
-eva02Subtitle.anchorY = 'top';
-eva02Subtitle.position.set(6.5, 1.15, 0);
-eva02Subtitle.material.transparent = true;
-eva02Subtitle.material.opacity = 0.6;
-eva02Subtitle.visible = currentSetIndex === 2 && currentModelIndex === 1;
-eva02Subtitle.sync();
-scene.add(eva02Subtitle);
+  const textColorHex = whiteMode ? 0x000000 : 0xffffff;
+  allSceneTexts.forEach(t => { t.color = textColorHex; t.sync(); });
 
-const eva02JpText = new Text();
-eva02JpText.text = '汎用ヒト型決戦兵器 人造人間エヴァンゲリオン弐号機';
-eva02JpText.font = '/fonts/evangelion.ttf';
-eva02JpText.fontSize = 0.13;
-eva02JpText.letterSpacing = 0.02;
-eva02JpText.color = 0xffffff;
-eva02JpText.anchorX = 'right';
-eva02JpText.anchorY = 'top';
-eva02JpText.position.set(6.5, 1.0, 0);
-eva02JpText.material.transparent = true;
-eva02JpText.material.opacity = 0.6;
-eva02JpText.visible = currentSetIndex === 2 && currentModelIndex === 1;
-eva02JpText.sync();
-scene.add(eva02JpText);
+  updateSetButtons();
+  updateModeButtons();
+}
+
+// ── Set switching ────────────────────────────────────────────────────────────
 
 function switchSet(index) {
   currentSetIndex = index;
-  models = sets[index];
   modelCache.clear();
   currentModelIndex = -1;
-  if (mahoragaText) mahoragaText.visible = false;
-  swLogo.style.display = index === 3 ? 'block' : 'none';
-  scene.background = index === 3 ? null : new THREE.Color(0x111111);
-  evaTitle.visible = false;
-  evaSubtitle.visible = false;
-  evaJpText.visible = false;
-  eva02Title.visible = false;
-  eva02Subtitle.visible = false;
-  eva02JpText.visible = false;
-  switchLightingMode((index === 5 || index === 6) ? 1 : 0);
+
+  const def = currentSetDef();
+
+  // Hide all overlays
+  mahoragaText.visible = false;
+  allSceneTexts.forEach(t => t.visible = false);
+  for (const mesh of Object.values(setLogos)) mesh.visible = false;
+
+  // Star Wars CSS logo
+  swLogo.style.display = def.nullBackground ? 'block' : 'none';
+  scene.background = def.nullBackground ? null : new THREE.Color(whiteMode ? 0xffffff : 0x111111);
+
+  // Lighting mode
+  switchLightingMode(def.defaultLighting ?? 0);
   updateSetButtons();
-  loadModel(index === 5 ? 1 : index === 6 ? 2 : 0);
+
+  // Load default model
+  loadModel(def.defaultModel ?? 0);
 }
+
+// ── Input ────────────────────────────────────────────────────────────────────
+
+// Build hotkey map from set defs
+const hotkeyMap = {};
+SET_DEFS.forEach((def, i) => {
+  if (def.hotkey) hotkeyMap[def.hotkey] = i;
+});
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Tab') {
     e.preventDefault();
-    switchSet((currentSetIndex + 1) % sets.length);
+    switchSet((currentSetIndex + 1) % SET_DEFS.length);
     return;
   }
-  if (e.key === '7') { switchSet(5); return; }
-  if (e.key === '8') { switchSet(6); return; }
+  if (e.key === '6') {
+    whiteMode = !whiteMode;
+    applyWhiteMode();
+    return;
+  }
+  if (hotkeyMap[e.key] !== undefined) {
+    switchSet(hotkeyMap[e.key]);
+    return;
+  }
+
+  const models = currentModels();
   const idx = models.findIndex(m => m.key === e.key);
   if (idx !== -1) loadModel(idx);
   if (e.key === 'ArrowRight') loadModel((currentModelIndex + 1) % models.length);
   if (e.key === 'ArrowLeft') loadModel((currentModelIndex - 1 + models.length) % models.length);
 });
 
-// Double tap to cycle models (touch devices only)
+// Double tap to cycle models (touch)
 let lastTap = 0;
 renderer.domElement.addEventListener('touchend', (e) => {
   const now = Date.now();
   if (now - lastTap < 300) {
     e.preventDefault();
+    const models = currentModels();
     loadModel((currentModelIndex + 1) % models.length);
   }
   lastTap = now;
 });
 
-// Load default
-loadModel(0);
+// ── Lights ───────────────────────────────────────────────────────────────────
 
 const ambient = new THREE.AmbientLight(0xffffff, 0);
 scene.add(ambient);
 
-// Lighting mode: 0 = current (elevator/split), 1 = particles
-let lightingMode = 0;
-
-// Particle system (from shinji branch)
+// Particle system
 const particleCount = 5000;
 const particleGeo = new THREE.BufferGeometry();
 const particlePositions = new Float32Array(particleCount * 3);
@@ -520,40 +646,7 @@ for (let i = 0; i < glowCount; i++) {
 let lightFrame = 0;
 const _tempColor = new THREE.Color();
 
-// Lighting mode selector (top-left)
-const modeNav = document.createElement('div');
-modeNav.style.cssText = 'position:fixed;top:16px;left:16px;display:flex;gap:8px;z-index:10';
-document.body.appendChild(modeNav);
-const modeLabels = ['A', 'B'];
-const modeButtons = [];
-for (let i = 0; i < 2; i++) {
-  const btn = document.createElement('div');
-  btn.textContent = modeLabels[i];
-  btn.style.cssText = 'width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.3);color:#fff;font:14px/1 monospace;cursor:pointer;background:rgba(255,255,255,0.05);transition:all 0.2s;user-select:none';
-  btn.addEventListener('click', () => switchLightingMode(i));
-  btn.addEventListener('mouseenter', () => { if (i !== lightingMode) btn.style.background = 'rgba(255,255,255,0.15)'; });
-  btn.addEventListener('mouseleave', () => { if (i !== lightingMode) btn.style.background = 'rgba(255,255,255,0.05)'; });
-  modeNav.appendChild(btn);
-  modeButtons.push(btn);
-}
-function updateModeButtons() {
-  modeButtons.forEach((btn, i) => {
-    btn.style.background = i === lightingMode ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.05)';
-    btn.style.borderColor = i === lightingMode ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
-  });
-}
-updateModeButtons();
-
-function switchLightingMode(mode) {
-  lightingMode = mode;
-  particles.visible = mode === 1;
-  if (mode === 0) {
-    glowLights.forEach(l => l.intensity = 0);
-  }
-  updateModeButtons();
-}
-
-// Elevator ring light — single ring using a torus mesh for the glow
+// Ring lights
 const ringGeometry = new THREE.TorusGeometry(3, 0.05, 8, 64);
 const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
 const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
@@ -563,11 +656,10 @@ scene.add(ringMesh);
 
 const ringLight = new THREE.PointLight(0xffffff, 3, 10);
 scene.add(ringLight);
-
 const ringLight2 = new THREE.PointLight(0xffffff, 3, 10);
 scene.add(ringLight2);
 
-// Cheaper directional lights for set3 (EVA)
+// Directional ring lights
 const dirRingLight = new THREE.DirectionalLight(0xffffff, 0);
 dirRingLight.position.set(0, 8, 0);
 dirRingLight.target.position.set(0, 0, 0);
@@ -580,212 +672,210 @@ dirRingLight2.target.position.set(0, 0, 0);
 scene.add(dirRingLight2);
 scene.add(dirRingLight2.target);
 
-const RING_TOP = 8;
-const RING_BOTTOM = -3;
+const RING_TOP = 8, RING_BOTTOM = -3;
 const RING_RANGE = RING_TOP - RING_BOTTOM;
 const RING_SPEED = 0.0004;
 
-// Two-tone split lighting for set 2 (portraits)
+// Split lighting
 const warmLight = new THREE.DirectionalLight(0xff8844, 0);
 warmLight.position.set(-3, 3, 2);
 scene.add(warmLight);
-
 const coolLight = new THREE.DirectionalLight(0x4488ff, 0);
 coolLight.position.set(3, 3, 2);
 scene.add(coolLight);
 
-// Resize
+// ── Resize ───────────────────────────────────────────────────────────────────
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Animate
+// ── Lighting update functions ────────────────────────────────────────────────
+
+function resetAllLights() {
+  ringLight.intensity = 0;
+  ringLight2.intensity = 0;
+  dirRingLight.intensity = 0;
+  dirRingLight2.intensity = 0;
+  warmLight.intensity = 0;
+  coolLight.intensity = 0;
+}
+
+function updateParticleLighting() {
+  resetAllLights();
+  ambient.color.set(0xffffff);
+  ambient.intensity = 0.08;
+
+  // Animate particles
+  const pos = particles.geometry.attributes.position.array;
+  for (let i = 0; i < particleCount; i++) {
+    pos[i * 3 + 1] -= velocities[i];
+    pos[i * 3] += Math.sin(Date.now() * 0.001 + i) * 0.002;
+    if (pos[i * 3 + 1] < -1) {
+      pos[i * 3 + 1] = 25;
+      pos[i * 3] = (Math.random() - 0.5) * 30;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 50;
+    }
+  }
+  particles.geometry.attributes.position.needsUpdate = true;
+
+  // Particle colors
+  const t = Date.now() * 0.005;
+  const hueType = currentSetDef().particleHue;
+  let baseHue;
+
+  if (lightFrame % 4 === 0) {
+    const cols = particles.geometry.attributes.color.array;
+    for (let i = 0; i < particleCount; i++) {
+      const flicker = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * 3 + i * 7.13));
+      if (hueType === 'warm') {
+        baseHue = 0.04 + Math.sin(t) * 0.02 + Math.sin(t * 2.3) * 0.01 + Math.sin(t * 5.7) * 0.01;
+        _tempColor.setHSL(baseHue + Math.sin(i * 3.77 + t) * 0.03, 1.0, 0.35 + flicker * 0.4);
+      } else if (hueType === 'rainbow') {
+        baseHue = (t * 0.1) % 1.0;
+        _tempColor.setHSL((baseHue + i / particleCount + Math.sin(i * 0.5 + t) * 0.1) % 1.0, 1.0, 0.35 + flicker * 0.4);
+      } else {
+        baseHue = 0;
+        _tempColor.setHSL(0, 0, 0.6 + flicker * 0.35);
+      }
+      cols[i * 3] = _tempColor.r;
+      cols[i * 3 + 1] = _tempColor.g;
+      cols[i * 3 + 2] = _tempColor.b;
+    }
+    particles.geometry.attributes.color.needsUpdate = true;
+  }
+  if (baseHue === undefined) {
+    baseHue = hueType === 'warm' ? 0.04 : hueType === 'rainbow' ? (t * 0.1) % 1.0 : 0;
+  }
+
+  // Glow lights near model
+  if (lightFrame % 4 === 0) {
+    const mx = monolith.position.x, my = monolith.position.y, mz = monolith.position.z;
+    const nearest = [];
+    const pos2 = particles.geometry.attributes.position.array;
+    for (let i = 0; i < particleCount; i++) {
+      const dx = pos2[i * 3] - mx, dy = pos2[i * 3 + 1] - my, dz = pos2[i * 3 + 2] - mz;
+      const distSq = dx * dx + dy * dy + dz * dz;
+      if (distSq < GLOW_RADIUS * GLOW_RADIUS) {
+        nearest.push({ x: pos2[i * 3], y: pos2[i * 3 + 1], z: pos2[i * 3 + 2], distSq });
+        if (nearest.length > glowCount * 3) {
+          nearest.sort((a, b) => a.distSq - b.distSq);
+          nearest.length = glowCount;
+        }
+      }
+    }
+    nearest.sort((a, b) => a.distSq - b.distSq);
+    for (let i = 0; i < glowCount; i++) {
+      const light = glowLights[i];
+      if (i < nearest.length) {
+        const p = nearest[i];
+        light.position.set(p.x, p.y, p.z);
+        light.intensity = (1 - Math.sqrt(p.distSq) / GLOW_RADIUS) * 6;
+        light.color.setHSL(baseHue, hueType ? (hueType === 'warm' || hueType === 'rainbow' ? 1.0 : 0) : 0, 0.5);
+      } else {
+        light.intensity = 0;
+      }
+    }
+  }
+  lightFrame++;
+}
+
+function getLightingStyle() {
+  const def = currentSetDef();
+  if (def.lightingOverrides?.[currentModelIndex]) return def.lightingOverrides[currentModelIndex];
+  return def.lightingStyle;
+}
+
+function updateSceneLighting() {
+  const style = getLightingStyle();
+  ambient.color.set(0xffffff);
+  resetAllLights();
+
+  const angle = Date.now() * 0.0004;
+
+  switch (style) {
+    case 'neon':
+      ambient.color.set(0xcc44ff);
+      ambient.intensity = 1.0;
+      warmLight.color.set(0xff1493);
+      coolLight.color.set(0x8800ff);
+      warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
+      coolLight.position.set(Math.cos(angle + Math.PI) * 4, 2, Math.sin(angle + Math.PI) * 4);
+      warmLight.intensity = 2;
+      coolLight.intensity = 2;
+      break;
+
+    case 'splitTone': {
+      const a = Date.now() * 0.0003;
+      warmLight.color.set(0xff8844);
+      coolLight.color.set(0x4488ff);
+      warmLight.position.set(Math.cos(a) * 4, 3, Math.sin(a) * 4);
+      coolLight.position.set(Math.cos(a + Math.PI) * 4, 3, Math.sin(a + Math.PI) * 4);
+      ambient.intensity = 0.3;
+      warmLight.intensity = 1.5;
+      coolLight.intensity = 1.5;
+      break;
+    }
+
+    case 'dualRing': {
+      ambient.intensity = 0.2;
+      const now = Date.now() * RING_SPEED;
+      const p1 = now % 1.0, p2 = (now + 0.5) % 1.0;
+      dirRingLight.position.set(0, RING_TOP - p1 * RING_RANGE, 2);
+      dirRingLight.intensity = 3 * Math.min(Math.min(p1, 1 - p1) * 5, 1);
+      dirRingLight2.position.set(0, RING_TOP - p2 * RING_RANGE, -2);
+      dirRingLight2.intensity = 3 * Math.min(Math.min(p2, 1 - p2) * 5, 1);
+      break;
+    }
+
+    case 'singleRing': {
+      ambient.intensity = 0.05;
+      const now = Date.now() * 0.00015;
+      const p = now % 1.0;
+      const center = Math.abs(p - 0.5) * 2;
+      dirRingLight.position.set(0, RING_TOP - p * RING_RANGE, 2);
+      dirRingLight.intensity = 4 * Math.pow(1 - center, 4);
+      break;
+    }
+
+    case 'ambientOnly':
+      ambient.intensity = 2.8;
+      break;
+
+    case 'pointRing':
+    default: {
+      ringLight.distance = 30;
+      ringLight2.distance = 30;
+      const now = Date.now() * RING_SPEED;
+      const p1 = now % 1.0, p2 = (now + 0.5) % 1.0;
+      ringLight.position.set(0, RING_TOP - p1 * RING_RANGE, 0);
+      ringLight.intensity = 5 * Math.min(Math.min(p1, 1 - p1) * 5, 1);
+      ringLight2.position.set(0, RING_TOP - p2 * RING_RANGE, 0);
+      ringLight2.intensity = 5 * Math.min(Math.min(p2, 1 - p2) * 5, 1);
+      break;
+    }
+  }
+}
+
+// ── Animate ──────────────────────────────────────────────────────────────────
+
 function animate() {
   const delta = clock.getDelta();
   if (mixer) mixer.update(delta);
   controls.update();
 
   if (lightingMode === 1) {
-    // Particle lighting mode
-    ringLight.intensity = 0;
-    ringLight2.intensity = 0;
-    dirRingLight.intensity = 0;
-    dirRingLight2.intensity = 0;
-    warmLight.intensity = 0;
-    coolLight.intensity = 0;
-    ambient.color.set(0xffffff);
-    ambient.intensity = 0.08;
-
-    const pos = particles.geometry.attributes.position.array;
-    for (let i = 0; i < particleCount; i++) {
-      pos[i * 3 + 1] -= velocities[i];
-      pos[i * 3] += Math.sin(Date.now() * 0.001 + i) * 0.002;
-      if (pos[i * 3 + 1] < -1) {
-        pos[i * 3 + 1] = 25;
-        pos[i * 3] = (Math.random() - 0.5) * 30;
-        pos[i * 3 + 2] = (Math.random() - 0.5) * 50;
-      }
-    }
-    particles.geometry.attributes.position.needsUpdate = true;
-
-    const t = Date.now() * 0.005;
-    let baseHue;
-    if (lightFrame % 4 === 0) {
-      const cols = particles.geometry.attributes.color.array;
-      const _c = _tempColor;
-      for (let i = 0; i < particleCount; i++) {
-        const flicker = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * 3 + i * 7.13));
-        if (currentSetIndex === 0) {
-          baseHue = 0.04 + Math.sin(t) * 0.02 + Math.sin(t * 2.3) * 0.01 + Math.sin(t * 5.7) * 0.01;
-          const h = baseHue + Math.sin(i * 3.77 + t) * 0.03;
-          _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
-        } else if (currentSetIndex === 1) {
-          baseHue = (t * 0.1) % 1.0;
-          const h = (baseHue + i / particleCount + Math.sin(i * 0.5 + t) * 0.1) % 1.0;
-          _c.setHSL(h, 1.0, 0.35 + flicker * 0.4);
-        } else {
-          baseHue = 0;
-          const l = 0.6 + flicker * 0.35;
-          _c.setHSL(0, 0, l);
-        }
-        cols[i * 3] = _c.r;
-        cols[i * 3 + 1] = _c.g;
-        cols[i * 3 + 2] = _c.b;
-      }
-      particles.geometry.attributes.color.needsUpdate = true;
-    }
-    if (baseHue === undefined) baseHue = currentSetIndex === 0 ? 0.04 : currentSetIndex === 1 ? (t * 0.1) % 1.0 : 0;
-    const hue = baseHue;
-
-    if (lightFrame % 4 === 0) {
-      const mx = monolith.position.x, my = monolith.position.y, mz = monolith.position.z;
-      const nearest = [];
-      const pos2 = particles.geometry.attributes.position.array;
-      for (let i = 0; i < particleCount; i++) {
-        const px = pos2[i * 3], py = pos2[i * 3 + 1], pz = pos2[i * 3 + 2];
-        const dx = px - mx, dy = py - my, dz = pz - mz;
-        const distSq = dx * dx + dy * dy + dz * dz;
-        if (distSq < GLOW_RADIUS * GLOW_RADIUS) {
-          nearest.push({ x: px, y: py, z: pz, distSq });
-          if (nearest.length > glowCount * 3) {
-            nearest.sort((a, b) => a.distSq - b.distSq);
-            nearest.length = glowCount;
-          }
-        }
-      }
-      nearest.sort((a, b) => a.distSq - b.distSq);
-      for (let i = 0; i < glowCount; i++) {
-        const light = glowLights[i];
-        if (i < nearest.length) {
-          const p = nearest[i];
-          light.position.set(p.x, p.y, p.z);
-          const dist = Math.sqrt(p.distSq);
-          light.intensity = (1 - dist / GLOW_RADIUS) * 6;
-          light.color.setHSL(hue, (currentSetIndex >= 2) ? 0 : 1.0, 0.5);
-        } else {
-          light.intensity = 0;
-        }
-      }
-    }
-    lightFrame++;
-  } else if (currentSetIndex === 0) {
-    // Set 1: neon pink/purple
-    ringLight.intensity = 0;
-    ringLight2.intensity = 0;
-    dirRingLight.intensity = 0;
-    dirRingLight2.intensity = 0;
-    warmLight.intensity = 0;
-    coolLight.intensity = 0;
-    ambient.color.set(0xcc44ff);
-    ambient.intensity = 1.0;
-    const angle = Date.now() * 0.0004;
-    // Pink from one side, purple from the other
-    warmLight.color.set(0xff1493);
-    coolLight.color.set(0x8800ff);
-    warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
-    coolLight.position.set(Math.cos(angle + Math.PI) * 4, 2, Math.sin(angle + Math.PI) * 4);
-    warmLight.intensity = 2;
-    coolLight.intensity = 2;
-  } else if (currentSetIndex === 1) {
-    // Set 2: two-tone split with slow rotation
-    ringLight.intensity = 0;
-    ringLight2.intensity = 0;
-    dirRingLight.intensity = 0;
-    dirRingLight2.intensity = 0;
-    const angle = Date.now() * 0.0003;
-    warmLight.color.set(0xff8844);
-    coolLight.color.set(0x4488ff);
-    warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
-    coolLight.position.set(Math.cos(angle + Math.PI) * 4, 3, Math.sin(angle + Math.PI) * 4);
-    ambient.color.set(0xffffff);
-    ambient.intensity = 0.3;
-    warmLight.intensity = 1.5;
-    coolLight.intensity = 1.5;
+    updateParticleLighting();
   } else {
-    // Other sets: elevator ring lights (y-axis)
-    ambient.color.set(0xffffff);
-    warmLight.intensity = 0;
-    coolLight.intensity = 0;
-    ringLight.intensity = 0;
-    ringLight2.intensity = 0;
-
-    if (currentSetIndex === 4) {
-      // Mahoraga set: slow dramatic single ring
-      ambient.intensity = 0.05;
-      dirRingLight2.intensity = 0;
-      const now = Date.now() * 0.00015;
-      const progress1 = now % 1.0;
-
-      const y1 = RING_TOP - progress1 * RING_RANGE;
-      const center = Math.abs(progress1 - 0.5) * 2;
-      const fade1 = Math.pow(1 - center, 4);
-      dirRingLight.position.set(0, y1, 2);
-      dirRingLight.intensity = 4 * fade1;
-    } else if (currentSetIndex === 2 && currentModelIndex === 2) {
-      // Angel Walk: ambient only, no rings
-      ambient.intensity = 2.8;
-      dirRingLight.intensity = 0;
-      dirRingLight2.intensity = 0;
-    } else if (currentSetIndex === 2 || currentSetIndex === 5 || currentSetIndex === 6) {
-      // EVA set, set6 & set8: dual DirectionalLight rings
-      ambient.intensity = 0.2;
-      const now = Date.now() * RING_SPEED;
-      const progress1 = now % 1.0;
-      const progress2 = (now + 0.5) % 1.0;
-
-      const y1 = RING_TOP - progress1 * RING_RANGE;
-      const fade1 = Math.min(Math.min(progress1, 1 - progress1) * 5, 1);
-      dirRingLight.position.set(0, y1, 2);
-      dirRingLight.intensity = 3 * fade1;
-
-      const y2 = RING_TOP - progress2 * RING_RANGE;
-      const fade2 = Math.min(Math.min(progress2, 1 - progress2) * 5, 1);
-      dirRingLight2.position.set(0, y2, -2);
-      dirRingLight2.intensity = 3 * fade2;
-    } else {
-      // Other sets: PointLights for radial falloff
-      dirRingLight.intensity = 0;
-      dirRingLight2.intensity = 0;
-      ringLight.distance = 30;
-      ringLight2.distance = 30;
-      const now = Date.now() * RING_SPEED;
-      const progress1 = now % 1.0;
-      const progress2 = (now + 0.5) % 1.0;
-
-      const y1 = RING_TOP - progress1 * RING_RANGE;
-      const fade1 = Math.min(Math.min(progress1, 1 - progress1) * 5, 1);
-      ringLight.position.set(0, y1, 0);
-      ringLight.intensity = 5 * fade1;
-
-      const y2 = RING_TOP - progress2 * RING_RANGE;
-      const fade2 = Math.min(Math.min(progress2, 1 - progress2) * 5, 1);
-      ringLight2.position.set(0, y2, 0);
-      ringLight2.intensity = 5 * fade2;
-    }
+    updateSceneLighting();
   }
 
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(animate);
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+
+loadModel(0);
