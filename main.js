@@ -15,7 +15,7 @@ camera.position.set(0, 2.5, 14);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(window.devicePixelRatio);
 renderer.domElement.style.position = 'relative';
 renderer.domElement.style.zIndex = '1';
 renderer.domElement.style.transition = 'opacity 0.6s';
@@ -96,7 +96,7 @@ const SET_DEFS = [
   { // 1: Shinji – rainbow particle glow portraits
     models: [
       { key: '1', name: 'Shinji', path: '/set2/shinji.glb' },
-      { key: '2', name: 'Shinji 2', path: '/set2/shinji2.glb' },
+      { key: '2', name: 'Misato', path: '/set2/misato.glb' },
       { key: '3', name: 'Shinji 3', path: '/set2/shinji3.glb' },
       { key: '4', name: 'Shinji 4', path: '/set2/shinji4.glb' },
     ],
@@ -163,16 +163,30 @@ const SET_DEFS = [
   { // 6: Rimuru (set8) – hidden, press '8' to access, flat anime shading
     models: [
       { key: '1', name: 'Rimuru', path: '/set8/rimuru.glb' },
-      { key: '2', name: 'Rimuru 2', path: '/set8/rimuru2.glb' },
-      { key: '3', name: 'Rimuru 3', path: '/set8/rimuru3.glb' },
+      { key: '2', name: 'Veldora', path: '/set8/veldora.glb' },
+      { key: '3', name: 'Rimuru 2', path: '/set8/rimuru2.glb' },
+      { key: '4', name: 'Rimuru 3', path: '/set8/rimuru3.glb' },
     ],
-    defaultModel: 2,
+    defaultModel: 3,
     hidden: true,
     hotkey: '8',
     buttonLabel: '8',
     lightingStyle: 'dualRing',
     defaultLighting: 1,
     materialStyle: 'anime',
+  },
+  { // 7: Asuka (misc) – hidden, press '/' to access
+    models: [
+      { key: '1', name: 'Asuka', path: '/misc/asuka.glb' },
+      { key: '2', name: 'Akira', path: '/misc/akira.glb' },
+    ],
+    hidden: true,
+    hotkey: '0',
+    buttonLabel: '0',
+    lightingStyle: 'ambientOnly',
+    rotationOverride: { x: 0.6109, y: 0.35, z: 0 },
+    positionYOffsetOverrides: { 1: 0.3 },
+    lightingOverrides: { 1: 'dualRingBright' },
   },
 ];
 
@@ -182,6 +196,7 @@ let whiteMode = false;
 let currentSetIndex = 2;
 let currentModelIndex = -1;
 let lightingMode = 0;
+let pendingLightingMode = null;
 
 function currentSetDef() { return SET_DEFS[currentSetIndex]; }
 function currentModels() { return currentSetDef().models; }
@@ -327,11 +342,14 @@ function create3DLogo(texturePath, aspect, height, position, extraOpts = {}) {
   return mesh;
 }
 
+const fateLogoMesh = create3DLogo('/set1/fate.png', 594 / 290, 2.0, [4.5, 0.5, -3], { alphaTest: 0.01 });
+const csmLogoMesh = create3DLogo('/set1/chainsawman.png', 1600 / 900, 3.0, [-4.5, 0.5, -3], { alphaTest: 0.01 });
+const evaLogoMesh = create3DLogo('/set2/evangelion_logo.png', 960 / 427, 3.0, [-4.5, 7.0, -3], { alphaTest: 0.01 });
 const opLogoMesh = create3DLogo('/set6/onepiece_logo.png', 1600 / 740, 3.0, [-4.5, 7.0, -3]);
 const rimuruLogoMesh = create3DLogo('/set8/rimuru_logo.png', 900 / 615, 3.0, [-3.5, 7.0, -3], { alphaTest: 0.01 });
 
 // Map set index → logo mesh (for visibility toggling)
-const setLogos = { 5: opLogoMesh, 6: rimuruLogoMesh };
+const setLogos = { 0: fateLogoMesh, 1: evaLogoMesh, 5: opLogoMesh, 6: rimuruLogoMesh };
 
 // ── Text/logo visibility ────────────────────────────────────────────────────
 
@@ -343,6 +361,10 @@ function updateTextVisibility(modelIndex) {
   for (const [idx, mesh] of Object.entries(setLogos)) {
     mesh.visible = show && currentSetIndex === Number(idx);
   }
+
+  // Per-model logo overrides
+  csmLogoMesh.visible = show && currentSetIndex === 0 && modelIndex === 5;
+  if (csmLogoMesh.visible) fateLogoMesh.visible = false;
 
   // EVA titles
   evaTitle.visible = currentSetIndex === 2 && modelIndex === 0;
@@ -401,7 +423,8 @@ function loadModel(index) {
     model.position.x -= center.x;
     model.position.z -= center.z;
     model.position.y -= box.min.y;
-    model.position.y += def.positionYOffset ?? -1.2;
+    const yOffset = def.positionYOffsetOverrides?.[index] ?? def.positionYOffset ?? -1.2;
+    model.position.y += yOffset;
 
     // Rotation
     if (def.rotationOverride) {
@@ -411,6 +434,21 @@ function loadModel(index) {
     } else {
       model.rotation.y = 0.35;
     }
+
+    // Anisotropic filtering — drastically reduces texture jaggies at oblique angles
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      for (const mat of mats) {
+        for (const prop of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap']) {
+          if (mat[prop]) {
+            mat[prop].anisotropy = maxAniso;
+            mat[prop].needsUpdate = true;
+          }
+        }
+      }
+    });
 
     // Material overrides
     applyMaterialOverrides(model, currentSetIndex, index);
@@ -441,6 +479,10 @@ function swapModel(model, name, animations) {
 }
 
 function revealScene() {
+  if (pendingLightingMode !== null) {
+    switchLightingMode(pendingLightingMode);
+    pendingLightingMode = null;
+  }
   renderer.domElement.style.opacity = '1';
 }
 
@@ -581,13 +623,14 @@ function switchSet(index) {
   mahoragaText.visible = false;
   allSceneTexts.forEach(t => t.visible = false);
   for (const mesh of Object.values(setLogos)) mesh.visible = false;
+  csmLogoMesh.visible = false;
 
   // Star Wars CSS logo
   swLogo.style.display = def.nullBackground ? 'block' : 'none';
   scene.background = def.nullBackground ? null : new THREE.Color(whiteMode ? 0xffffff : 0x111111);
 
-  // Lighting mode
-  switchLightingMode(def.defaultLighting ?? 0);
+  // Defer lighting mode switch until model is ready (via pendingLightingMode)
+  pendingLightingMode = def.defaultLighting ?? 0;
   updateSetButtons();
 
   // Load default model
@@ -855,6 +898,17 @@ function updateSceneLighting() {
       break;
     }
 
+    case 'dualRingBright': {
+      ambient.intensity = 0.4;
+      const now2 = Date.now() * RING_SPEED;
+      const p1b = now2 % 1.0, p2b = (now2 + 0.5) % 1.0;
+      dirRingLight.position.set(0, RING_TOP - p1b * RING_RANGE, 2);
+      dirRingLight.intensity = 6 * Math.min(Math.min(p1b, 1 - p1b) * 5, 1);
+      dirRingLight2.position.set(0, RING_TOP - p2b * RING_RANGE, -2);
+      dirRingLight2.intensity = 6 * Math.min(Math.min(p2b, 1 - p2b) * 5, 1);
+      break;
+    }
+
     case 'dualRing': {
       ambient.intensity = 0.2;
       const now = Date.now() * RING_SPEED;
@@ -875,6 +929,13 @@ function updateSceneLighting() {
       dirRingLight.intensity = 4 * Math.pow(1 - center, 4);
       break;
     }
+
+    case 'ambientBright':
+      ambient.intensity = 8.4;
+      dirRingLight.position.set(0, 10, 2);
+      dirRingLight.target.position.set(0, 0, 0);
+      dirRingLight.intensity = 6;
+      break;
 
     case 'ambientOnly':
       ambient.intensity = 2.8;
