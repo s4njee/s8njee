@@ -42,14 +42,19 @@ const sets = [
     { key: '4', name: 'Shinji 4', path: '/set2/shinji4.glb' },
   ],
   [
-    { key: '1', name: 'EVA-01', path: '/set3/eva01.glb' },
-    { key: '2', name: 'EVA-02', path: '/set3/eva02.glb' },
+    { key: '1', name: 'EVA-01 Running', path: '/set3/eva01running.glb' },
+    { key: '2', name: 'EVA-02 Running', path: '/set3/eva02running.glb' },
+    { key: '3', name: 'EVA-01', path: '/set3/eva01.glb' },
+    { key: '4', name: 'EVA-02', path: '/set3/eva02.glb' },
   ],
   [
     { key: '1', name: 'X-Wing', path: '/set4/1xwing.glb' },
     { key: '2', name: 'TIE Fighter', path: '/set4/2tie.glb' },
     { key: '3', name: 'Star Destroyer', path: '/set4/3sd.glb' },
     { key: '4', name: 'R90', path: '/set4/zr90.glb' },
+  ],
+  [
+    { key: '1', name: 'Mahoraga', path: '/set5/mahoraga.glb' },
   ],
 ];
 let currentSetIndex = 2;
@@ -60,6 +65,8 @@ dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5
 const loader = new GLTFLoader();
 loader.setDRACOLoader(dracoLoader);
 const modelCache = new Map();
+const clock = new THREE.Clock();
+let mixer = null;
 
 function loadModel(index) {
   if (index === currentModelIndex) return;
@@ -67,12 +74,14 @@ function loadModel(index) {
   const entry = models[index];
 
   if (modelCache.has(index)) {
-    swapModel(modelCache.get(index), entry.name);
+    const cached = modelCache.get(index);
+    swapModel(cached.model, entry.name, cached.animations);
     return;
   }
 
   loader.load(entry.path, (gltf) => {
     const model = gltf.scene;
+    const animations = gltf.animations;
     const box = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3();
     box.getSize(size);
@@ -94,17 +103,73 @@ function loadModel(index) {
       model.rotation.y = 0.35;
     }
 
-    modelCache.set(index, model);
-    swapModel(model, entry.name);
+    // Strip emissive maps so model responds to scene lighting
+    model.traverse((child) => {
+      if (child.isMesh && child.material) {
+        const mat = child.material;
+        if (mat.emissiveMap) {
+          mat.emissiveMap = null;
+          mat.emissive.set(0x000000);
+          mat.needsUpdate = true;
+        }
+        // Anime-style flat shading for set5
+        if (currentSetIndex === 4) {
+          mat.metalness = 0;
+          mat.roughness = 1.0;
+          mat.envMap = null;
+          mat.envMapIntensity = 0;
+          if (mat.metalnessMap) mat.metalnessMap = null;
+          if (mat.roughnessMap) mat.roughnessMap = null;
+          mat.needsUpdate = true;
+        }
+      }
+    });
+
+    modelCache.set(index, { model, animations });
+    swapModel(model, entry.name, animations);
   });
 }
 
-function swapModel(model, name) {
+function swapModel(model, name, animations) {
+  if (mixer) {
+    mixer.stopAllAction();
+    mixer = null;
+  }
   scene.remove(monolith);
   monolith = model;
   scene.add(monolith);
+  if (animations && animations.length > 0) {
+    mixer = new THREE.AnimationMixer(model);
+    animations.forEach((clip) => mixer.clipAction(clip).play());
+  }
   updateLabel(name);
 }
+
+// Music toggle
+const musicBtn = document.createElement('div');
+musicBtn.textContent = '♪';
+musicBtn.style.cssText = 'position:fixed;top:16px;right:48px;color:rgba(255,255,255,0.5);font-size:60px;cursor:pointer;z-index:100;user-select:none;transition:color 0.2s,text-shadow 0.2s';
+musicBtn.addEventListener('mouseenter', () => { if (!musicPlaying) musicBtn.style.color = 'rgba(255,255,255,0.8)'; });
+musicBtn.addEventListener('mouseleave', () => { if (!musicPlaying) musicBtn.style.color = 'rgba(255,255,255,0.5)'; });
+document.body.appendChild(musicBtn);
+
+const bgm = new Audio('/set3/bgm.mp3');
+bgm.loop = true;
+let musicPlaying = false;
+
+musicBtn.addEventListener('click', () => {
+  if (musicPlaying) {
+    bgm.pause();
+    musicPlaying = false;
+    musicBtn.style.color = 'rgba(255,255,255,0.5)';
+    musicBtn.style.textShadow = 'none';
+  } else {
+    bgm.play();
+    musicPlaying = true;
+    musicBtn.style.color = '#fff';
+    musicBtn.style.textShadow = '0 0 8px rgba(255,255,255,0.6)';
+  }
+});
 
 // HUD label
 const label = document.createElement('div');
@@ -125,7 +190,7 @@ document.body.appendChild(setNav);
 const setButtons = [];
 for (let i = 0; i < sets.length; i++) {
   const btn = document.createElement('div');
-  btn.textContent = i + 1;
+  btn.textContent = i === 4 ? '✱' : i + 1;
   btn.style.cssText = 'width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.3);color:#fff;font:14px/1 monospace;cursor:pointer;background:rgba(255,255,255,0.05);transition:all 0.2s;user-select:none';
   btn.addEventListener('click', () => switchSet(i));
   btn.addEventListener('mouseenter', () => { if (i !== currentSetIndex) btn.style.background = 'rgba(255,255,255,0.15)'; });
@@ -193,7 +258,7 @@ scene.add(particles);
 
 // Glow lights for particle mode
 const glowLights = [];
-const glowCount = 12;
+const glowCount = 6;
 const GLOW_RADIUS = 25;
 for (let i = 0; i < glowCount; i++) {
   const light = new THREE.PointLight(0xffffff, 0, 8);
@@ -202,6 +267,7 @@ for (let i = 0; i < glowCount; i++) {
   glowLights.push(light);
 }
 let lightFrame = 0;
+const _tempColor = new THREE.Color();
 
 // Lighting mode selector (top-left)
 const modeNav = document.createElement('div');
@@ -250,6 +316,19 @@ scene.add(ringLight);
 const ringLight2 = new THREE.PointLight(0xffffff, 3, 10);
 scene.add(ringLight2);
 
+// Cheaper directional lights for set3 (EVA)
+const dirRingLight = new THREE.DirectionalLight(0xffffff, 0);
+dirRingLight.position.set(0, 8, 0);
+dirRingLight.target.position.set(0, 0, 0);
+scene.add(dirRingLight);
+scene.add(dirRingLight.target);
+
+const dirRingLight2 = new THREE.DirectionalLight(0xffffff, 0);
+dirRingLight2.position.set(0, 8, 0);
+dirRingLight2.target.position.set(0, 0, 0);
+scene.add(dirRingLight2);
+scene.add(dirRingLight2.target);
+
 const RING_TOP = 8;
 const RING_BOTTOM = -3;
 const RING_RANGE = RING_TOP - RING_BOTTOM;
@@ -273,16 +352,20 @@ window.addEventListener('resize', () => {
 
 // Animate
 function animate() {
+  const delta = clock.getDelta();
+  if (mixer) mixer.update(delta);
   controls.update();
 
   if (lightingMode === 1) {
     // Particle lighting mode
     ringLight.intensity = 0;
     ringLight2.intensity = 0;
+    dirRingLight.intensity = 0;
+    dirRingLight2.intensity = 0;
     warmLight.intensity = 0;
     coolLight.intensity = 0;
     ambient.color.set(0xffffff);
-    ambient.intensity = 0.03;
+    ambient.intensity = 0.08;
 
     const pos = particles.geometry.attributes.position.array;
     for (let i = 0; i < particleCount; i++) {
@@ -298,9 +381,9 @@ function animate() {
 
     const t = Date.now() * 0.005;
     let baseHue;
-    if (lightFrame % 3 === 0) {
+    if (lightFrame % 4 === 0) {
       const cols = particles.geometry.attributes.color.array;
-      const _c = new THREE.Color();
+      const _c = _tempColor;
       for (let i = 0; i < particleCount; i++) {
         const flicker = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * 3 + i * 7.13));
         if (currentSetIndex === 0) {
@@ -325,7 +408,7 @@ function animate() {
     if (baseHue === undefined) baseHue = currentSetIndex === 0 ? 0.04 : currentSetIndex === 1 ? (t * 0.1) % 1.0 : 0;
     const hue = baseHue;
 
-    if (lightFrame % 3 === 0) {
+    if (lightFrame % 4 === 0) {
       const mx = monolith.position.x, my = monolith.position.y, mz = monolith.position.z;
       const nearest = [];
       const pos2 = particles.geometry.attributes.position.array;
@@ -360,6 +443,8 @@ function animate() {
     // Set 1: neon pink/purple
     ringLight.intensity = 0;
     ringLight2.intensity = 0;
+    dirRingLight.intensity = 0;
+    dirRingLight2.intensity = 0;
     warmLight.intensity = 0;
     coolLight.intensity = 0;
     ambient.color.set(0xcc44ff);
@@ -376,6 +461,8 @@ function animate() {
     // Set 2: two-tone split with slow rotation
     ringLight.intensity = 0;
     ringLight2.intensity = 0;
+    dirRingLight.intensity = 0;
+    dirRingLight2.intensity = 0;
     const angle = Date.now() * 0.0003;
     warmLight.color.set(0xff8844);
     coolLight.color.set(0x4488ff);
@@ -388,24 +475,59 @@ function animate() {
   } else {
     // Other sets: elevator ring lights (y-axis)
     ambient.color.set(0xffffff);
-    ambient.intensity = 0.15;
     warmLight.intensity = 0;
     coolLight.intensity = 0;
-    ringLight.distance = 30;
-    ringLight2.distance = 30;
-    const now = Date.now() * RING_SPEED;
-    const progress1 = now % 1.0;
-    const progress2 = (now + 0.5) % 1.0;
-    
-    const y1 = RING_TOP - progress1 * RING_RANGE;
-    const fade1 = Math.min(Math.min(progress1, 1 - progress1) * 5, 1);
-    ringLight.position.set(0, y1, 0);
-    ringLight.intensity = 5 * fade1;
+    ringLight.intensity = 0;
+    ringLight2.intensity = 0;
 
-    const y2 = RING_TOP - progress2 * RING_RANGE;
-    const fade2 = Math.min(Math.min(progress2, 1 - progress2) * 5, 1);
-    ringLight2.position.set(0, y2, 0);
-    ringLight2.intensity = 5 * fade2;
+    if (currentSetIndex === 4) {
+      // Mahoraga set: slow dramatic single ring
+      ambient.intensity = 0.05;
+      dirRingLight2.intensity = 0;
+      const now = Date.now() * 0.00015;
+      const progress1 = now % 1.0;
+
+      const y1 = RING_TOP - progress1 * RING_RANGE;
+      const center = Math.abs(progress1 - 0.5) * 2;
+      const fade1 = Math.pow(1 - center, 4);
+      dirRingLight.position.set(0, y1, 2);
+      dirRingLight.intensity = 4 * fade1;
+    } else if (currentSetIndex === 2) {
+      // EVA set: dual DirectionalLight rings
+      ambient.intensity = 0.3;
+      const now = Date.now() * RING_SPEED;
+      const progress1 = now % 1.0;
+      const progress2 = (now + 0.5) % 1.0;
+
+      const y1 = RING_TOP - progress1 * RING_RANGE;
+      const fade1 = Math.min(Math.min(progress1, 1 - progress1) * 5, 1);
+      dirRingLight.position.set(0, y1, 2);
+      dirRingLight.intensity = 5 * fade1;
+
+      const y2 = RING_TOP - progress2 * RING_RANGE;
+      const fade2 = Math.min(Math.min(progress2, 1 - progress2) * 5, 1);
+      dirRingLight2.position.set(0, y2, -2);
+      dirRingLight2.intensity = 5 * fade2;
+    } else {
+      // Other sets: PointLights for radial falloff
+      dirRingLight.intensity = 0;
+      dirRingLight2.intensity = 0;
+      ringLight.distance = 30;
+      ringLight2.distance = 30;
+      const now = Date.now() * RING_SPEED;
+      const progress1 = now % 1.0;
+      const progress2 = (now + 0.5) % 1.0;
+
+      const y1 = RING_TOP - progress1 * RING_RANGE;
+      const fade1 = Math.min(Math.min(progress1, 1 - progress1) * 5, 1);
+      ringLight.position.set(0, y1, 0);
+      ringLight.intensity = 5 * fade1;
+
+      const y2 = RING_TOP - progress2 * RING_RANGE;
+      const fade2 = Math.min(Math.min(progress2, 1 - progress2) * 5, 1);
+      ringLight2.position.set(0, y2, 0);
+      ringLight2.intensity = 5 * fade2;
+    }
   }
 
   renderer.render(scene, camera);
