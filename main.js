@@ -76,6 +76,15 @@ const sets = [
   [
     { key: '1', name: 'Mahoraga', path: '/set5/mahoraga.glb' },
   ],
+  [
+    { key: '1', name: 'Sanji', path: '/set6/sanji.glb' },
+    { key: '2', name: 'Sanji 2', path: '/set6/sanji2.glb' },
+  ],
+  [
+    { key: '1', name: 'Rimuru', path: '/set8/rimuru.glb' },
+    { key: '2', name: 'Rimuru 2', path: '/set8/rimuru2.glb' },
+    { key: '3', name: 'Rimuru 3', path: '/set8/rimuru3.glb' },
+  ],
 ];
 let currentSetIndex = 2;
 let models = sets[2];
@@ -91,6 +100,12 @@ let mixer = null;
 function updateTextVisibility(index) {
   if (typeof mahoragaText !== 'undefined') {
     mahoragaText.visible = index >= 0 && currentSetIndex === 4;
+  }
+  if (typeof opLogoMesh !== 'undefined') {
+    opLogoMesh.visible = index >= 0 && currentSetIndex === 5;
+  }
+  if (typeof rimuruLogoMesh !== 'undefined') {
+    rimuruLogoMesh.visible = index >= 0 && currentSetIndex === 6;
   }
   if (typeof evaTitle !== 'undefined') {
     evaTitle.visible = currentSetIndex === 2 && index === 0;
@@ -162,10 +177,10 @@ function loadModel(index) {
           mat.emissive.set(0x000000);
           mat.needsUpdate = true;
         }
-        // Reduce metalness for set3 (except Angel Walk)
-        if (currentSetIndex === 2 && currentModelIndex !== 2) {
-          mat.metalness = Math.min(mat.metalness, 0.2);
-          mat.roughness = Math.max(mat.roughness, 0.6);
+        // Reduce metalness for set3 (except Angel Walk) and set6
+        if ((currentSetIndex === 2 && currentModelIndex !== 2) || currentSetIndex === 5) {
+          mat.metalness = Math.min(mat.metalness, currentSetIndex === 5 ? 0.05 : 0.2);
+          mat.roughness = Math.max(mat.roughness, currentSetIndex === 5 ? 0.85 : 0.6);
           if (mat.metalnessMap) mat.metalnessMap = null;
           mat.needsUpdate = true;
         }
@@ -175,8 +190,8 @@ function loadModel(index) {
           mat.roughness = 0.25;
           mat.needsUpdate = true;
         }
-        // Anime-style flat shading for set5
-        if (currentSetIndex === 4) {
+        // Anime-style flat shading for set5 & set8
+        if (currentSetIndex === 4 || currentSetIndex === 6) {
           mat.metalness = 0;
           mat.roughness = 1.0;
           mat.envMap = null;
@@ -263,8 +278,10 @@ document.body.appendChild(setNav);
 const setButtons = [];
 for (let i = 0; i < sets.length; i++) {
   const btn = document.createElement('div');
-  btn.textContent = i === 4 ? '✱' : i + 1;
+  btn.textContent = i === 4 ? '✱' : i === 5 ? '7' : i === 6 ? '8' : i + 1;
   btn.style.cssText = 'width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.3);color:#fff;font:14px/1 monospace;cursor:pointer;background:rgba(255,255,255,0.05);transition:all 0.2s;user-select:none';
+  // Hide set7 and set8 buttons (accessible via keyboard only)
+  if (i === 5 || i === 6) btn.style.display = 'none';
   btn.addEventListener('click', () => switchSet(i));
   btn.addEventListener('mouseenter', () => { if (i !== currentSetIndex) btn.style.background = 'rgba(255,255,255,0.15)'; });
   btn.addEventListener('mouseleave', () => { if (i !== currentSetIndex) btn.style.background = 'rgba(255,255,255,0.05)'; });
@@ -285,6 +302,28 @@ swLogo.src = '/set4/starwars_logo_yellow.svg';
 swLogo.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-55%);width:50vw;opacity:0.12;pointer-events:none;z-index:0;display:none';
 document.body.insertBefore(swLogo, document.body.firstChild);
 if (currentSetIndex === 3) swLogo.style.display = 'block';
+
+// Set6 One Piece logo — 3D plane in scene (top-left like EVA titles)
+const opLogoTexture = new THREE.TextureLoader().load('/set6/onepiece_logo.png');
+const opLogoMat = new THREE.MeshBasicMaterial({ map: opLogoTexture, transparent: true, opacity: 0.85, depthWrite: false });
+const opLogoAspect = 1600 / 740; // approximate aspect ratio of the logo image
+const opLogoHeight = 3.0;
+const opLogoGeo = new THREE.PlaneGeometry(opLogoHeight * opLogoAspect, opLogoHeight);
+const opLogoMesh = new THREE.Mesh(opLogoGeo, opLogoMat);
+opLogoMesh.position.set(-4.5, 7.0, -3);
+opLogoMesh.visible = false;
+scene.add(opLogoMesh);
+
+// Set8 Rimuru logo — 3D plane in scene (top-left like OP logo)
+const rimuruLogoTexture = new THREE.TextureLoader().load('/set8/rimuru_logo.png');
+const rimuruLogoMat = new THREE.MeshBasicMaterial({ map: rimuruLogoTexture, transparent: true, opacity: 0.85, depthWrite: false, alphaTest: 0.01 });
+const rimuruLogoAspect = 900 / 615;
+const rimuruLogoHeight = 3.0;
+const rimuruLogoGeo = new THREE.PlaneGeometry(rimuruLogoHeight * rimuruLogoAspect, rimuruLogoHeight);
+const rimuruLogoMesh = new THREE.Mesh(rimuruLogoGeo, rimuruLogoMat);
+rimuruLogoMesh.position.set(-3.5, 7.0, -3);
+rimuruLogoMesh.visible = false;
+scene.add(rimuruLogoMesh);
 
 // Set5 3D title text
 const mahoragaText = new Text();
@@ -409,8 +448,9 @@ function switchSet(index) {
   eva02Title.visible = false;
   eva02Subtitle.visible = false;
   eva02JpText.visible = false;
+  switchLightingMode((index === 5 || index === 6) ? 1 : 0);
   updateSetButtons();
-  loadModel(0);
+  loadModel(index === 5 ? 1 : index === 6 ? 2 : 0);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -419,6 +459,8 @@ window.addEventListener('keydown', (e) => {
     switchSet((currentSetIndex + 1) % sets.length);
     return;
   }
+  if (e.key === '7') { switchSet(5); return; }
+  if (e.key === '8') { switchSet(6); return; }
   const idx = models.findIndex(m => m.key === e.key);
   if (idx !== -1) loadModel(idx);
   if (e.key === 'ArrowRight') loadModel((currentModelIndex + 1) % models.length);
@@ -706,8 +748,8 @@ function animate() {
       ambient.intensity = 2.8;
       dirRingLight.intensity = 0;
       dirRingLight2.intensity = 0;
-    } else if (currentSetIndex === 2) {
-      // EVA set: dual DirectionalLight rings
+    } else if (currentSetIndex === 2 || currentSetIndex === 5 || currentSetIndex === 6) {
+      // EVA set, set6 & set8: dual DirectionalLight rings
       ambient.intensity = 0.2;
       const now = Date.now() * RING_SPEED;
       const progress1 = now % 1.0;
