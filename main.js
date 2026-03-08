@@ -112,6 +112,13 @@ function loadModel(index) {
           mat.emissive.set(0x000000);
           mat.needsUpdate = true;
         }
+        // Reduce metalness for set3
+        if (currentSetIndex === 2) {
+          mat.metalness = Math.min(mat.metalness, 0.2);
+          mat.roughness = Math.max(mat.roughness, 0.6);
+          if (mat.metalnessMap) mat.metalnessMap = null;
+          mat.needsUpdate = true;
+        }
         // Anime-style flat shading for set5
         if (currentSetIndex === 4) {
           mat.metalness = 0;
@@ -494,7 +501,7 @@ function animate() {
       dirRingLight.intensity = 4 * fade1;
     } else if (currentSetIndex === 2) {
       // EVA set: dual DirectionalLight rings
-      ambient.intensity = 0.3;
+      ambient.intensity = 0.12;
       const now = Date.now() * RING_SPEED;
       const progress1 = now % 1.0;
       const progress2 = (now + 0.5) % 1.0;
@@ -502,12 +509,12 @@ function animate() {
       const y1 = RING_TOP - progress1 * RING_RANGE;
       const fade1 = Math.min(Math.min(progress1, 1 - progress1) * 5, 1);
       dirRingLight.position.set(0, y1, 2);
-      dirRingLight.intensity = 5 * fade1;
+      dirRingLight.intensity = 3 * fade1;
 
       const y2 = RING_TOP - progress2 * RING_RANGE;
       const fade2 = Math.min(Math.min(progress2, 1 - progress2) * 5, 1);
       dirRingLight2.position.set(0, y2, -2);
-      dirRingLight2.intensity = 5 * fade2;
+      dirRingLight2.intensity = 3 * fade2;
     } else {
       // Other sets: PointLights for radial falloff
       dirRingLight.intensity = 0;
