@@ -73,6 +73,14 @@ let mixer = null;
 function loadModel(index) {
   if (index === currentModelIndex) return;
   currentModelIndex = index;
+  if (typeof evaTitle !== 'undefined') {
+    evaTitle.visible = currentSetIndex === 2 && index === 0;
+    evaSubtitle.visible = currentSetIndex === 2 && index === 0;
+    evaJpText.visible = currentSetIndex === 2 && index === 0;
+    eva02Title.visible = currentSetIndex === 2 && index === 1;
+    eva02Subtitle.visible = currentSetIndex === 2 && index === 1;
+    eva02JpText.visible = currentSetIndex === 2 && index === 1;
+  }
   const entry = models[index];
 
   if (modelCache.has(index)) {
@@ -238,12 +246,110 @@ mahoragaText.visible = currentSetIndex === 4;
 mahoragaText.sync();
 scene.add(mahoragaText);
 
+// Set3 model 0 (EVA-01 Running) title text
+const evaTitle = new Text();
+evaTitle.text = 'EVANGELION UNIT-01';
+evaTitle.font = '/fonts/evangelion.ttf';
+evaTitle.fontSize = 0.4;
+evaTitle.letterSpacing = 0.08;
+evaTitle.color = 0xffffff;
+evaTitle.anchorX = 'left';
+evaTitle.anchorY = 'bottom';
+evaTitle.position.set(-6.5, 1.2, 0);
+evaTitle.material.transparent = true;
+evaTitle.material.opacity = 0.85;
+evaTitle.visible = currentSetIndex === 2 && currentModelIndex === 0;
+evaTitle.sync();
+scene.add(evaTitle);
+
+const evaSubtitle = new Text();
+evaSubtitle.text = 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN';
+evaSubtitle.font = '/fonts/evangelion.ttf';
+evaSubtitle.fontSize = 0.13;
+evaSubtitle.letterSpacing = 0.04;
+evaSubtitle.color = 0xffffff;
+evaSubtitle.anchorX = 'left';
+evaSubtitle.anchorY = 'top';
+evaSubtitle.position.set(-6.5, 1.15, 0);
+evaSubtitle.material.transparent = true;
+evaSubtitle.material.opacity = 0.6;
+evaSubtitle.visible = currentSetIndex === 2 && currentModelIndex === 0;
+evaSubtitle.sync();
+scene.add(evaSubtitle);
+
+const evaJpText = new Text();
+evaJpText.text = '汎用ヒト型決戦兵器 人造人間エヴァンゲリオン初号機';
+evaJpText.font = '/fonts/evangelion.ttf';
+evaJpText.fontSize = 0.13;
+evaJpText.letterSpacing = 0.02;
+evaJpText.color = 0xffffff;
+evaJpText.anchorX = 'left';
+evaJpText.anchorY = 'top';
+evaJpText.position.set(-6.5, 1.0, 0);
+evaJpText.material.transparent = true;
+evaJpText.material.opacity = 0.6;
+evaJpText.visible = currentSetIndex === 2 && currentModelIndex === 0;
+evaJpText.sync();
+scene.add(evaJpText);
+
+// Set3 model 1 (EVA-02 Running) title text — right side
+const eva02Title = new Text();
+eva02Title.text = 'EVANGELION UNIT-02';
+eva02Title.font = '/fonts/evangelion.ttf';
+eva02Title.fontSize = 0.4;
+eva02Title.letterSpacing = 0.08;
+eva02Title.color = 0xffffff;
+eva02Title.anchorX = 'right';
+eva02Title.anchorY = 'bottom';
+eva02Title.position.set(6.5, 1.2, 0);
+eva02Title.material.transparent = true;
+eva02Title.material.opacity = 0.85;
+eva02Title.visible = currentSetIndex === 2 && currentModelIndex === 1;
+eva02Title.sync();
+scene.add(eva02Title);
+
+const eva02Subtitle = new Text();
+eva02Subtitle.text = 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN';
+eva02Subtitle.font = '/fonts/evangelion.ttf';
+eva02Subtitle.fontSize = 0.13;
+eva02Subtitle.letterSpacing = 0.04;
+eva02Subtitle.color = 0xffffff;
+eva02Subtitle.anchorX = 'right';
+eva02Subtitle.anchorY = 'top';
+eva02Subtitle.position.set(6.5, 1.15, 0);
+eva02Subtitle.material.transparent = true;
+eva02Subtitle.material.opacity = 0.6;
+eva02Subtitle.visible = currentSetIndex === 2 && currentModelIndex === 1;
+eva02Subtitle.sync();
+scene.add(eva02Subtitle);
+
+const eva02JpText = new Text();
+eva02JpText.text = '汎用ヒト型決戦兵器 人造人間エヴァンゲリオン弐号機';
+eva02JpText.font = '/fonts/evangelion.ttf';
+eva02JpText.fontSize = 0.13;
+eva02JpText.letterSpacing = 0.02;
+eva02JpText.color = 0xffffff;
+eva02JpText.anchorX = 'right';
+eva02JpText.anchorY = 'top';
+eva02JpText.position.set(6.5, 1.0, 0);
+eva02JpText.material.transparent = true;
+eva02JpText.material.opacity = 0.6;
+eva02JpText.visible = currentSetIndex === 2 && currentModelIndex === 1;
+eva02JpText.sync();
+scene.add(eva02JpText);
+
 function switchSet(index) {
   currentSetIndex = index;
   models = sets[index];
   modelCache.clear();
   currentModelIndex = -1;
   if (mahoragaText) mahoragaText.visible = index === 4;
+  evaTitle.visible = false;
+  evaSubtitle.visible = false;
+  evaJpText.visible = false;
+  eva02Title.visible = false;
+  eva02Subtitle.visible = false;
+  eva02JpText.visible = false;
   updateSetButtons();
   loadModel(0);
 }
