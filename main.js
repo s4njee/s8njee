@@ -6,7 +6,10 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Text } from 'troika-three-text';
+import GUI from 'lil-gui';
+
 
 // ── Scene setup ──────────────────────────────────────────────────────────────
 
@@ -21,7 +24,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.7;
+renderer.toneMappingExposure = 0.76;
 renderer.domElement.style.position = 'relative';
 renderer.domElement.style.zIndex = '1';
 renderer.domElement.style.transition = 'opacity 0.6s';
@@ -35,10 +38,136 @@ composer.addPass(new RenderPass(scene, camera));
 
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  2.0, 0.4, 0.85  // strength, radius, threshold
+  0.5, 0.15, 0.77  // strength, radius, threshold
 );
 bloomPass.enabled = false;
 composer.addPass(bloomPass);
+// ── Scanline effect ──────────────────────────────────────────────────────────
+
+const ScanlineShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    time: { value: 0.0 },
+    density: { value: 5.13 },
+    opacity: { value: 0.75 },
+    scrollSpeed: { value: 0.08 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float time;
+    uniform float density;
+    uniform float opacity;
+    uniform float scrollSpeed;
+    varying vec2 vUv;
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+      float scanline = sin((vUv.y + time * scrollSpeed) * density * 300.0) * 0.5 + 0.5;
+      color.rgb = mix(color.rgb, color.rgb * scanline, opacity);
+      gl_FragColor = color;
+    }
+  `,
+};
+
+const scanlinePass = new ShaderPass(ScanlineShader);
+scanlinePass.enabled = true;
+composer.addPass(scanlinePass);
+
+// ── Glitch effect (triggered on model switch) ───────────────────────────────
+
+const GlitchShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    time: { value: 0.0 },
+    amount: { value: 0.0 },
+    seed: { value: 0.0 },
+    columns: { value: 0.05 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float time;
+    uniform float amount;
+    uniform float seed;
+    uniform float columns;
+    varying vec2 vUv;
+
+    float rand(vec2 co) {
+      return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+    }
+
+    void main() {
+      vec2 uv = vUv;
+
+      // Block displacement
+      float blockY = floor(uv.y * (10.0 + seed * 20.0)) / 10.0;
+      float blockX = floor(uv.x / columns) * columns;
+      float noise = rand(vec2(blockY, seed + time));
+      float glitchLine = step(1.0 - amount * 0.3, noise);
+      uv.x += glitchLine * (rand(vec2(blockY, time)) - 0.5) * amount * 0.15;
+
+      // Chromatic aberration
+      float shift = amount * 0.015 * (rand(vec2(time, seed)) - 0.5);
+      vec4 cr = texture2D(tDiffuse, vec2(uv.x + shift, uv.y));
+      vec4 cg = texture2D(tDiffuse, uv);
+      vec4 cb = texture2D(tDiffuse, vec2(uv.x - shift, uv.y));
+      vec4 color = vec4(cr.r, cg.g, cb.b, cg.a);
+
+      // Scanline flicker
+      float flicker = rand(vec2(time * 100.0, uv.y * 50.0));
+      color.rgb *= 1.0 - amount * 0.08 * step(0.97, flicker);
+
+      gl_FragColor = color;
+    }
+  `,
+};
+
+const glitchPass = new ShaderPass(GlitchShader);
+glitchPass.enabled = false;
+composer.addPass(glitchPass);
+
+let glitchTimer = null;
+const GLITCH_DURATION = 0.4; // seconds
+let glitchElapsed = 0;
+let glitchActive = false;
+
+function triggerGlitch() {
+  glitchPass.enabled = true;
+  glitchActive = true;
+  glitchElapsed = 0;
+  glitchPass.uniforms.seed.value = Math.random() * 100;
+}
+
+function updateGlitch(delta) {
+  if (!glitchActive) return;
+  glitchElapsed += delta;
+  const progress = glitchElapsed / guiParams.glitchDuration;
+  if (progress >= 1.0) {
+    glitchActive = false;
+    glitchPass.enabled = false;
+    glitchPass.uniforms.amount.value = 0;
+    return;
+  }
+  // Ramp up then down
+  const intensity = progress < 0.3
+    ? progress / 0.3
+    : 1.0 - ((progress - 0.3) / 0.7);
+  glitchPass.uniforms.amount.value = intensity * guiParams.glitchStrength;
+  glitchPass.uniforms.time.value = clock.elapsedTime;
+}
+
 composer.addPass(new OutputPass());
 
 // 0 = off, 1 = bloom
@@ -51,9 +180,132 @@ function switchFx(mode) {
   bloomPass.enabled = mode === 1;
   bloomEnabled = mode === 1;
   bloomRingActive = mode === 1;
+  guiParams.bloomEnabled = mode === 1;
+  gui.controllersRecursive().forEach(c => c.updateDisplay());
   updateFxButtons();
 }
 
+
+// ── lil-gui ──────────────────────────────────────────────────────────────────
+
+const guiParams = {
+  showGUI: false,
+
+  // Bloom
+  bloomEnabled: false,
+  bloomStrength: 0.5,
+  bloomRadius: 0.15,
+  bloomThreshold: 0.77,
+
+  // Glitch (on model switch)
+  glitchDuration: 0.4,
+  glitchStrength: 1.0,
+
+  // Scanline
+  scanlineEnabled: true,
+  scanlineDensity: 5.13,
+  scanlineOpacity: 0.75,
+  scanlineScrollSpeed: 0.08,
+
+  // Tone mapping
+  exposure: 0.76,
+  toneMapping: 'ACESFilmic',
+
+  // Ambient light
+  ambientIntensity: 0.2,
+  ambientColor: '#ffffff',
+
+  // Scene
+  backgroundColor: '#111111',
+  whiteMode: false,
+
+  // Lighting mode
+  lightingMode: 'A (Scene)',
+};
+
+const gui = new GUI({ title: '⚙ Settings' });
+gui.domElement.style.zIndex = '200';
+gui.hide(); // hidden by default
+
+// -- Bloom folder --
+const bloomFolder = gui.addFolder('Bloom');
+bloomFolder.add(guiParams, 'bloomEnabled').name('Enabled').onChange((v) => {
+  switchFx(v ? 1 : 0);
+});
+bloomFolder.add(guiParams, 'bloomStrength', 0, 3, 0.01).name('Strength').onChange((v) => {
+  bloomPass.strength = v;
+});
+bloomFolder.add(guiParams, 'bloomRadius', 0, 1, 0.01).name('Radius').onChange((v) => {
+  bloomPass.radius = v;
+});
+bloomFolder.add(guiParams, 'bloomThreshold', 0, 1, 0.01).name('Threshold').onChange((v) => {
+  bloomPass.threshold = v;
+});
+
+// -- Glitch folder --
+const glitchFolder = gui.addFolder('Glitch');
+glitchFolder.add(guiParams, 'glitchDuration', 0.1, 2.0, 0.01).name('Duration (s)');
+glitchFolder.add(guiParams, 'glitchStrength', 0.1, 3.0, 0.01).name('Strength');
+glitchFolder.add({ trigger: () => triggerGlitch() }, 'trigger').name('⚡ Test Glitch');
+
+// -- Scanline folder --
+const scanlineFolder = gui.addFolder('Scanline');
+scanlineFolder.add(guiParams, 'scanlineEnabled').name('Enabled').onChange((v) => {
+  scanlinePass.enabled = v;
+});
+scanlineFolder.add(guiParams, 'scanlineDensity', 0.1, 10, 0.01).name('Density').onChange((v) => {
+  scanlinePass.uniforms.density.value = v;
+});
+scanlineFolder.add(guiParams, 'scanlineOpacity', 0, 1, 0.01).name('Opacity').onChange((v) => {
+  scanlinePass.uniforms.opacity.value = v;
+});
+scanlineFolder.add(guiParams, 'scanlineScrollSpeed', 0, 2, 0.01).name('Scroll Speed').onChange((v) => {
+  scanlinePass.uniforms.scrollSpeed.value = v;
+});
+
+// -- Tone Mapping folder --
+const toneFolder = gui.addFolder('Tone Mapping');
+toneFolder.add(guiParams, 'exposure', 0, 3, 0.01).name('Exposure').onChange((v) => {
+  renderer.toneMappingExposure = v;
+});
+toneFolder.add(guiParams, 'toneMapping', ['NoToneMapping', 'Linear', 'Reinhard', 'Cineon', 'ACESFilmic', 'AgX', 'Neutral']).name('Algorithm').onChange((v) => {
+  const map = {
+    NoToneMapping: THREE.NoToneMapping,
+    Linear: THREE.LinearToneMapping,
+    Reinhard: THREE.ReinhardToneMapping,
+    Cineon: THREE.CineonToneMapping,
+    ACESFilmic: THREE.ACESFilmicToneMapping,
+    AgX: THREE.AgXToneMapping,
+    Neutral: THREE.NeutralToneMapping,
+  };
+  renderer.toneMapping = map[v] ?? THREE.ACESFilmicToneMapping;
+});
+
+// -- Ambient Light folder --
+const ambientFolder = gui.addFolder('Ambient Light');
+ambientFolder.add(guiParams, 'ambientIntensity', 0, 10, 0.01).name('Intensity');
+ambientFolder.addColor(guiParams, 'ambientColor').name('Color');
+
+// -- Scene folder --
+const sceneFolder = gui.addFolder('Scene');
+sceneFolder.addColor(guiParams, 'backgroundColor').name('Background').onChange((v) => {
+  scene.background = new THREE.Color(v);
+  document.body.style.background = v;
+});
+sceneFolder.add(guiParams, 'whiteMode').name('White Mode').onChange((v) => {
+  whiteMode = v;
+  applyWhiteMode();
+});
+sceneFolder.add(guiParams, 'lightingMode', ['A (Scene)', 'B (Particles)']).name('Lighting Mode').onChange((v) => {
+  switchLightingMode(v === 'A (Scene)' ? 0 : 1);
+});
+
+// -- Toggle GUI visibility with 'g' key --
+let guiVisible = false;
+function toggleGUI() {
+  guiVisible = !guiVisible;
+  if (guiVisible) gui.show(); else gui.hide();
+}
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 2.5, 0);
@@ -132,6 +384,7 @@ const SET_DEFS = [
       { key: '2', name: 'Misato', path: '/set2/misato.glb' },
       { key: '3', name: 'Shinji 3', path: '/set2/shinji3.glb' },
       { key: '4', name: 'Shinji 4', path: '/set2/shinji4.glb' },
+      { key: '5', name: 'Asushin', path: '/set2/asushin.glb' },
     ],
     buttonLabel: '2',
     lightingStyle: 'splitTone',
@@ -199,9 +452,10 @@ const SET_DEFS = [
   { // 6: Rimuru (set8) – hidden, press '8' to access, flat anime shading
     models: [
       { key: '1', name: 'Rimuru', path: '/set8/rimuru.glb' },
-      { key: '2', name: 'Veldora', path: '/set8/veldora.glb' },
-      { key: '3', name: 'Rimuru 2', path: '/set8/rimuru2.glb' },
-      { key: '4', name: 'Rimuru 3', path: '/set8/rimuru3.glb' },
+      { key: '2', name: 'Diablo', path: '/set8/diablo.glb' },
+      { key: '3', name: 'Veldora', path: '/set8/veldora.glb' },
+      { key: '4', name: 'Rimuru 2', path: '/set8/rimuru2.glb' },
+      { key: '5', name: 'Rimuru 3', path: '/set8/rimuru3.glb' },
     ],
     defaultModel: 3,
     hidden: true,
@@ -420,6 +674,7 @@ function updateTextVisibility(modelIndex) {
 function loadModel(index) {
   if (index === currentModelIndex) return;
   currentModelIndex = index;
+  triggerGlitch();
   renderer.domElement.style.opacity = '0';
   updateTextVisibility(-1);
   const entry = currentModels()[index];
@@ -626,12 +881,16 @@ function switchLightingMode(mode) {
   lightingMode = mode;
   particles.visible = mode === 1;
   if (mode === 0) glowLights.forEach(l => l.intensity = 0);
+  guiParams.lightingMode = mode === 0 ? 'A (Scene)' : 'B (Particles)';
+  gui.controllersRecursive().forEach(c => c.updateDisplay());
   updateModeButtons();
 }
 
 // ── UI: FX selector ──────────────────────────────────────────────────────────
 
 function updateFxButtons() {} // no-op, bloom toggled via key '4'
+
+
 
 // ── White mode ───────────────────────────────────────────────────────────────
 
@@ -700,7 +959,13 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === '6') {
     whiteMode = !whiteMode;
+    guiParams.whiteMode = whiteMode;
+    gui.controllersRecursive().forEach(c => c.updateDisplay());
     applyWhiteMode();
+    return;
+  }
+  if (e.key === 'g' || e.key === 'G') {
+    toggleGUI();
     return;
   }
   if (hotkeyMap[e.key] !== undefined) {
@@ -928,6 +1193,11 @@ function updateSceneLighting() {
   ambient.color.set(0xffffff);
   resetAllLights();
 
+  // If GUI is visible, let the ambient folder override base ambient values
+  if (guiVisible) {
+    ambient.color.set(guiParams.ambientColor);
+  }
+
   const angle = Date.now() * 0.0004;
 
   switch (style) {
@@ -1048,12 +1318,19 @@ function updateSceneLighting() {
       break;
     }
   }
+
+  // GUI ambient overrides (when panel is open, slider takes precedence)
+  if (guiVisible) {
+    ambient.intensity = guiParams.ambientIntensity;
+  }
 }
 
 // ── Animate ──────────────────────────────────────────────────────────────────
 
 function animate() {
   const delta = clock.getDelta();
+  scanlinePass.uniforms.time.value = clock.elapsedTime;
+  updateGlitch(delta);
   if (mixer) mixer.update(delta);
   controls.update();
 
