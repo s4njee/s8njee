@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Text } from 'troika-three-text';
 
 // ── Scene setup ──────────────────────────────────────────────────────────────
@@ -16,11 +20,30 @@ camera.position.set(0, 2.5, 14);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
 renderer.domElement.style.position = 'relative';
 renderer.domElement.style.zIndex = '1';
 renderer.domElement.style.transition = 'opacity 0.6s';
 renderer.domElement.style.opacity = '0';
 document.body.appendChild(renderer.domElement);
+
+// ── Post-processing (bloom) ──────────────────────────────────────────────────
+
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.0,   // strength (0 = off by default, enabled per-model)
+  0.4,   // radius
+  0.85   // threshold
+);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+
+let bloomEnabled = false;
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 2.5, 0);
@@ -125,6 +148,10 @@ const SET_DEFS = [
       1: 'streetlight',
       2: 'streetlightSlow',
     },
+    // EVA-01 Running gets emissive bloom
+    bloomOverrides: {
+      0: { strength: 1.5, radius: 0.4, threshold: 0.85 },
+    },
   },
   { // 3: Star Wars – transparent background for CSS logo overlay, tilted rotation
     models: [
@@ -210,12 +237,14 @@ function currentModels() { return currentSetDef().models; }
 // of having baked-in glow that ignores the ring/particle light effects.
 function applyMaterialOverrides(model, setIndex, modelIndex) {
   const def = SET_DEFS[setIndex];
+  const hasBloom = def.bloomOverrides?.[modelIndex];
 
   model.traverse((child) => {
     if (!child.isMesh || !child.material) return;
     const mat = child.material;
 
-    if (mat.emissiveMap) {
+    // Keep emissive maps when bloom is enabled for this model
+    if (mat.emissiveMap && !hasBloom) {
       mat.emissiveMap = null;
       mat.emissive.set(0x000000);
       mat.needsUpdate = true;
@@ -477,6 +506,20 @@ function swapModel(model, name, animations) {
     mixer = new THREE.AnimationMixer(model);
     animations.forEach((clip) => mixer.clipAction(clip).play());
   }
+
+  // Toggle bloom based on per-model config
+  const def = currentSetDef();
+  const bloomConfig = def.bloomOverrides?.[currentModelIndex];
+  if (bloomConfig) {
+    bloomPass.strength = bloomConfig.strength;
+    bloomPass.radius = bloomConfig.radius;
+    bloomPass.threshold = bloomConfig.threshold;
+    bloomEnabled = true;
+  } else {
+    bloomPass.strength = 0;
+    bloomEnabled = false;
+  }
+
   updateLabel(name);
 }
 
@@ -776,6 +819,7 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
 });
 
 // ── Lighting update functions ────────────────────────────────────────────────
@@ -1019,7 +1063,11 @@ function animate() {
     updateSceneLighting();
   }
 
-  renderer.render(scene, camera);
+  if (bloomEnabled) {
+    composer.render();
+  } else {
+    renderer.render(scene, camera);
+  }
 }
 renderer.setAnimationLoop(animate);
 
