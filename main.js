@@ -21,7 +21,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 0.7;
 renderer.domElement.style.position = 'relative';
 renderer.domElement.style.zIndex = '1';
 renderer.domElement.style.transition = 'opacity 0.6s';
@@ -31,19 +31,29 @@ document.body.appendChild(renderer.domElement);
 // ── Post-processing (bloom) ──────────────────────────────────────────────────
 
 const composer = new EffectComposer(renderer);
-const renderPass = new RenderPass(scene, camera);
-composer.addPass(renderPass);
+composer.addPass(new RenderPass(scene, camera));
 
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.0,   // strength (0 = off by default, enabled per-model)
-  0.4,   // radius
-  0.85   // threshold
+  2.0, 0.4, 0.85  // strength, radius, threshold
 );
+bloomPass.enabled = false;
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
 
+// 0 = off, 1 = bloom
+let currentFx = 0;
 let bloomEnabled = false;
+
+let bloomRingActive = false;
+function switchFx(mode) {
+  currentFx = mode;
+  bloomPass.enabled = mode === 1;
+  bloomEnabled = mode === 1;
+  bloomRingActive = mode === 1;
+  updateFxButtons();
+}
+
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 2.5, 0);
@@ -148,10 +158,7 @@ const SET_DEFS = [
       1: 'streetlight',
       2: 'streetlightSlow',
     },
-    // EVA-01 Running gets emissive bloom
-    bloomOverrides: {
-      0: { strength: 1.5, radius: 0.4, threshold: 0.85 },
-    },
+
   },
   { // 3: Star Wars – transparent background for CSS logo overlay, tilted rotation
     models: [
@@ -243,8 +250,7 @@ function applyMaterialOverrides(model, setIndex, modelIndex) {
     if (!child.isMesh || !child.material) return;
     const mat = child.material;
 
-    // Keep emissive maps when bloom is enabled for this model
-    if (mat.emissiveMap && !hasBloom) {
+      if (mat.emissiveMap) {
       mat.emissiveMap = null;
       mat.emissive.set(0x000000);
       mat.needsUpdate = true;
@@ -507,19 +513,6 @@ function swapModel(model, name, animations) {
     animations.forEach((clip) => mixer.clipAction(clip).play());
   }
 
-  // Toggle bloom based on per-model config
-  const def = currentSetDef();
-  const bloomConfig = def.bloomOverrides?.[currentModelIndex];
-  if (bloomConfig) {
-    bloomPass.strength = bloomConfig.strength;
-    bloomPass.radius = bloomConfig.radius;
-    bloomPass.threshold = bloomConfig.threshold;
-    bloomEnabled = true;
-  } else {
-    bloomPass.strength = 0;
-    bloomEnabled = false;
-  }
-
   updateLabel(name);
 }
 
@@ -636,6 +629,10 @@ function switchLightingMode(mode) {
   updateModeButtons();
 }
 
+// ── UI: FX selector ──────────────────────────────────────────────────────────
+
+function updateFxButtons() {} // no-op, bloom toggled via key '4'
+
 // ── White mode ───────────────────────────────────────────────────────────────
 
 // Toggle via pressing '6'. Flips background, UI text, 3D text colors,
@@ -653,6 +650,7 @@ function applyWhiteMode() {
 
   updateSetButtons();
   updateModeButtons();
+  updateFxButtons();
 }
 
 // ── Set switching ────────────────────────────────────────────────────────────
@@ -696,6 +694,10 @@ window.addEventListener('keydown', (e) => {
     switchSet((currentSetIndex + 1) % SET_DEFS.length);
     return;
   }
+  if (e.key === '4') {
+    switchFx(currentFx === 1 ? 0 : 1);
+    return;
+  }
   if (e.key === '6') {
     whiteMode = !whiteMode;
     applyWhiteMode();
@@ -707,8 +709,6 @@ window.addEventListener('keydown', (e) => {
   }
 
   const models = currentModels();
-  const idx = models.findIndex(m => m.key === e.key);
-  if (idx !== -1) loadModel(idx);
   if (e.key === 'ArrowRight') loadModel((currentModelIndex + 1) % models.length);
   if (e.key === 'ArrowLeft') loadModel((currentModelIndex - 1 + models.length) % models.length);
 });
@@ -1061,6 +1061,27 @@ function animate() {
     updateParticleLighting();
   } else {
     updateSceneLighting();
+  }
+
+  // Animate bloom sweep lights (two upper + two lower, offset in phase)
+  if (bloomRingActive) {
+    const ringSpeed = 0.0004;
+    const now = Date.now() * ringSpeed;
+    // Upper pair
+    const p1 = now % 1.0;
+    const p2 = (now + 0.5) % 1.0;
+    dirRingLight.position.set(0, RING_TOP - p1 * RING_RANGE, 2);
+    dirRingLight.intensity = 1.5 * Math.min(Math.min(p1, 1 - p1) * 5, 1);
+    dirRingLight2.position.set(0, RING_TOP - p2 * RING_RANGE, -2);
+    dirRingLight2.intensity = 1.5 * Math.min(Math.min(p2, 1 - p2) * 5, 1);
+    // Lower pair (narrower range, focused on lower body)
+    const LOW_TOP = 3, LOW_BOTTOM = -2, LOW_RANGE = LOW_TOP - LOW_BOTTOM;
+    const p3 = (now * 0.8) % 1.0;
+    const p4 = (now * 0.8 + 0.5) % 1.0;
+    streetLight1.position.set(-1.5, LOW_TOP - p3 * LOW_RANGE, 2);
+    streetLight1.intensity = 1.5 * Math.min(Math.min(p3, 1 - p3) * 5, 1);
+    streetLight2.position.set(1.5, LOW_TOP - p4 * LOW_RANGE, -2);
+    streetLight2.intensity = 1.5 * Math.min(Math.min(p4, 1 - p4) * 5, 1);
   }
 
   if (bloomEnabled) {
