@@ -76,8 +76,97 @@ const ScanlineShader = {
 };
 
 const scanlinePass = new ShaderPass(ScanlineShader);
-scanlinePass.enabled = true;
+scanlinePass.enabled = false;
 composer.addPass(scanlinePass);
+
+// ── Linocut effect ───────────────────────────────────────────────────────────
+
+const LinocutShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    scale: { value: 0.85 },
+    density: { value: 360.0 },
+    noiseScale: { value: 0.0 },
+    centerX: { value: 0.5 },
+    centerY: { value: 0.5 },
+    rotation: { value: 0.0 },
+    resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float scale;
+    uniform float density;
+    uniform float noiseScale;
+    uniform float centerX;
+    uniform float centerY;
+    uniform float rotation;
+    uniform vec2 resolution;
+    varying vec2 vUv;
+
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+    }
+
+    float noise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      float a = hash(i);
+      float b = hash(i + vec2(1.0, 0.0));
+      float c = hash(i + vec2(0.0, 1.0));
+      float d = hash(i + vec2(1.0, 1.0));
+      return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    }
+
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+      float luma = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+
+      // Work in screen-space pixels normalized by height, so line density stays
+      // visually consistent across aspect ratios and matches the tighter pmndrs look.
+      vec2 center = vec2(centerX, centerY);
+      vec2 p = (vUv - center) * resolution / resolution.y;
+
+      float s = sin(rotation);
+      float c = cos(rotation);
+      p = vec2(p.x * c - p.y * s, p.x * s + p.y * c);
+
+      // Dense diagonal hatch pattern. Keep density fairly high, and let scale
+      // control line width/feel rather than the overall spacing.
+      float frequency = density;
+      float stripe = 0.5 + 0.5 * sin((p.x + p.y) * frequency);
+
+      // Noise slightly breaks up the mechanical regularity.
+      float n = (noise(p * 42.0 + 17.0) - 0.5) * noiseScale;
+      stripe = clamp(stripe + n, 0.0, 1.0);
+
+      // scale behaves like line width control: higher scale -> bolder black cuts,
+      // but keep the bias narrower so midtones retain more visible detail.
+      float widthBias = mix(-0.08, 0.12, clamp(scale, 0.0, 2.0) * 0.5);
+      float threshold = clamp(luma + widthBias, 0.0, 1.0);
+      float ink = step(stripe, threshold);
+
+      gl_FragColor = vec4(vec3(ink), color.a);
+    }
+  `,
+};
+
+const linocutPass = new ShaderPass(LinocutShader);
+linocutPass.enabled = false;
+linocutPass.uniforms.scale.value = 0.85;
+linocutPass.uniforms.density.value = 360.0;
+linocutPass.uniforms.noiseScale.value = 0.0;
+linocutPass.uniforms.centerX.value = 0.5;
+linocutPass.uniforms.centerY.value = 0.5;
+linocutPass.uniforms.rotation.value = 0.0;
+composer.addPass(linocutPass);
 
 // ── Hue & Saturation effect ──────────────────────────────────────────────────
 
@@ -200,6 +289,7 @@ let glitchElapsed = 0;
 let glitchActive = false;
 
 function triggerGlitch() {
+  if (!postProcessingActive) return;
   glitchPass.enabled = true;
   glitchActive = true;
   glitchElapsed = 0;
@@ -229,14 +319,22 @@ composer.addPass(new OutputPass());
 // 0 = off, 1 = bloom
 let currentFx = 0;
 let bloomEnabled = false;
+let postProcessingActive = false;
+
+function refreshPostProcessingPasses() {
+  postProcessingActive = currentFx === 1;
+  bloomPass.enabled = postProcessingActive && guiParams.bloomEnabled;
+  linocutPass.enabled = postProcessingActive && guiParams.linocutEnabled;
+  hueSatPass.enabled = postProcessingActive && guiParams.hueSatEnabled;
+  scanlinePass.enabled = postProcessingActive && guiParams.scanlineEnabled;
+  bloomEnabled = bloomPass.enabled;
+  bloomRingActive = bloomPass.enabled;
+}
 
 let bloomRingActive = false;
 function switchFx(mode) {
   currentFx = mode;
-  bloomPass.enabled = mode === 1;
-  bloomEnabled = mode === 1;
-  bloomRingActive = mode === 1;
-  guiParams.bloomEnabled = mode === 1;
+  refreshPostProcessingPasses();
   gui.controllersRecursive().forEach(c => c.updateDisplay());
   updateFxButtons();
 }
@@ -248,10 +346,19 @@ const guiParams = {
   showGUI: false,
 
   // Bloom
-  bloomEnabled: false,
+  bloomEnabled: true,
   bloomStrength: 0.5,
   bloomRadius: 0.15,
   bloomThreshold: 0.77,
+
+  // Linocut
+  linocutEnabled: false,
+  linocutScale: 0.85,
+  linocutDensity: 360.0,
+  linocutNoiseScale: 0.0,
+  linocutCenterX: 0.5,
+  linocutCenterY: 0.5,
+  linocutRotation: 0.0,
 
   // Hue & Saturation
   hueSatEnabled: false,
@@ -290,8 +397,8 @@ gui.hide(); // hidden by default
 
 // -- Bloom folder --
 const bloomFolder = gui.addFolder('Bloom');
-bloomFolder.add(guiParams, 'bloomEnabled').name('Enabled').onChange((v) => {
-  switchFx(v ? 1 : 0);
+bloomFolder.add(guiParams, 'bloomEnabled').name('Enabled').onChange(() => {
+  refreshPostProcessingPasses();
 });
 bloomFolder.add(guiParams, 'bloomStrength', 0, 3, 0.01).name('Strength').onChange((v) => {
   bloomPass.strength = v;
@@ -303,10 +410,34 @@ bloomFolder.add(guiParams, 'bloomThreshold', 0, 1, 0.01).name('Threshold').onCha
   bloomPass.threshold = v;
 });
 
+// -- Linocut folder --
+const linocutFolder = gui.addFolder('Linocut');
+linocutFolder.add(guiParams, 'linocutEnabled').name('Enabled').onChange(() => {
+  refreshPostProcessingPasses();
+});
+linocutFolder.add(guiParams, 'linocutScale', 0, 2, 0.01).name('Scale').onChange((v) => {
+  linocutPass.uniforms.scale.value = v;
+});
+linocutFolder.add(guiParams, 'linocutDensity', 50, 1600, 1).name('Density').onChange((v) => {
+  linocutPass.uniforms.density.value = v;
+});
+linocutFolder.add(guiParams, 'linocutNoiseScale', 0, 1, 0.01).name('Noise Scale').onChange((v) => {
+  linocutPass.uniforms.noiseScale.value = v;
+});
+linocutFolder.add(guiParams, 'linocutCenterX', 0, 1, 0.01).name('Center X').onChange((v) => {
+  linocutPass.uniforms.centerX.value = v;
+});
+linocutFolder.add(guiParams, 'linocutCenterY', 0, 1, 0.01).name('Center Y').onChange((v) => {
+  linocutPass.uniforms.centerY.value = v;
+});
+linocutFolder.add(guiParams, 'linocutRotation', -Math.PI, Math.PI, 0.01).name('Rotation').onChange((v) => {
+  linocutPass.uniforms.rotation.value = v;
+});
+
 // -- Hue & Saturation folder --
 const hueSatFolder = gui.addFolder('Hue & Saturation');
-hueSatFolder.add(guiParams, 'hueSatEnabled').name('Enabled').onChange((v) => {
-  hueSatPass.enabled = v;
+hueSatFolder.add(guiParams, 'hueSatEnabled').name('Enabled').onChange(() => {
+  refreshPostProcessingPasses();
 });
 hueSatFolder.add(guiParams, 'hue', -Math.PI, Math.PI, 0.001).name('Hue').onChange((v) => {
   hueSatPass.uniforms.hue.value = v;
@@ -323,8 +454,8 @@ glitchFolder.add({ trigger: () => triggerGlitch() }, 'trigger').name('⚡ Test G
 
 // -- Scanline folder --
 const scanlineFolder = gui.addFolder('Scanline');
-scanlineFolder.add(guiParams, 'scanlineEnabled').name('Enabled').onChange((v) => {
-  scanlinePass.enabled = v;
+scanlineFolder.add(guiParams, 'scanlineEnabled').name('Enabled').onChange(() => {
+  refreshPostProcessingPasses();
 });
 scanlineFolder.add(guiParams, 'scanlineDensity', 0.1, 10, 0.01).name('Density').onChange((v) => {
   scanlinePass.uniforms.density.value = v;
@@ -1041,6 +1172,25 @@ window.addEventListener('keydown', (e) => {
     toggleGUI();
     return;
   }
+  if (e.key === 's' || e.key === 'S') {
+    if (scanlinePass.enabled) {
+      // Switch to linocut
+      scanlinePass.enabled = false;
+      linocutPass.enabled = true;
+      guiParams.scanlineEnabled = false;
+      guiParams.linocutEnabled = true;
+    } else if (linocutPass.enabled) {
+      // Turn both off
+      linocutPass.enabled = false;
+      guiParams.linocutEnabled = false;
+    } else {
+      // Turn on scanline
+      scanlinePass.enabled = true;
+      guiParams.scanlineEnabled = true;
+    }
+    gui.controllersRecursive().forEach(c => c.updateDisplay());
+    return;
+  }
   if (hotkeyMap[e.key] !== undefined) {
     switchSet(hotkeyMap[e.key]);
     return;
@@ -1158,6 +1308,7 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
+  linocutPass.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
 });
 
 // ── Lighting update functions ────────────────────────────────────────────────
@@ -1400,6 +1551,10 @@ function updateSceneLighting() {
 
 // ── Animate ──────────────────────────────────────────────────────────────────
 
+function hasActivePostProcessing() {
+  return bloomPass.enabled || scanlinePass.enabled || linocutPass.enabled || hueSatPass.enabled || glitchPass.enabled;
+}
+
 function animate() {
   const delta = clock.getDelta();
   scanlinePass.uniforms.time.value = clock.elapsedTime;
@@ -1434,7 +1589,7 @@ function animate() {
     streetLight2.intensity = 1.5 * Math.min(Math.min(p4, 1 - p4) * 5, 1);
   }
 
-  if (bloomEnabled) {
+  if (hasActivePostProcessing()) {
     composer.render();
   } else {
     renderer.render(scene, camera);
