@@ -79,6 +79,62 @@ const scanlinePass = new ShaderPass(ScanlineShader);
 scanlinePass.enabled = true;
 composer.addPass(scanlinePass);
 
+// ── Hue & Saturation effect ──────────────────────────────────────────────────
+
+const HueSaturationShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    hue: { value: 0.0 },
+    saturation: { value: 0.0 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float hue;
+    uniform float saturation;
+    varying vec2 vUv;
+
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+
+      // Hue rotation
+      float angle = hue;
+      float s = sin(angle);
+      float c = cos(angle);
+      vec3 weights = vec3(0.2126, 0.7152, 0.0722);
+      float cosComp = 1.0 - c;
+      mat3 hueRotation = mat3(
+        weights.x + c * (1.0 - weights.x) + s * (-weights.x),
+        weights.x + c * (-weights.x) + s * 0.143,
+        weights.x + c * (-weights.x) + s * (-(1.0 - weights.x)),
+        weights.y + c * (-weights.y) + s * (-weights.y),
+        weights.y + c * (1.0 - weights.y) + s * 0.140,
+        weights.y + c * (-weights.y) + s * weights.y,
+        weights.z + c * (-weights.z) + s * (1.0 - weights.z),
+        weights.z + c * (-weights.z) + s * (-0.283),
+        weights.z + c * (1.0 - weights.z) + s * weights.z
+      );
+      color.rgb = hueRotation * color.rgb;
+
+      // Saturation
+      float luma = dot(color.rgb, weights);
+      color.rgb = mix(vec3(luma), color.rgb, 1.0 + saturation);
+
+      gl_FragColor = color;
+    }
+  `,
+};
+
+const hueSatPass = new ShaderPass(HueSaturationShader);
+hueSatPass.enabled = false;
+composer.addPass(hueSatPass);
+
 // ── Glitch effect (triggered on model switch) ───────────────────────────────
 
 const GlitchShader = {
@@ -197,6 +253,11 @@ const guiParams = {
   bloomRadius: 0.15,
   bloomThreshold: 0.77,
 
+  // Hue & Saturation
+  hueSatEnabled: false,
+  hue: 0.0,
+  saturation: 0.0,
+
   // Glitch (on model switch)
   glitchDuration: 0.4,
   glitchStrength: 1.0,
@@ -240,6 +301,18 @@ bloomFolder.add(guiParams, 'bloomRadius', 0, 1, 0.01).name('Radius').onChange((v
 });
 bloomFolder.add(guiParams, 'bloomThreshold', 0, 1, 0.01).name('Threshold').onChange((v) => {
   bloomPass.threshold = v;
+});
+
+// -- Hue & Saturation folder --
+const hueSatFolder = gui.addFolder('Hue & Saturation');
+hueSatFolder.add(guiParams, 'hueSatEnabled').name('Enabled').onChange((v) => {
+  hueSatPass.enabled = v;
+});
+hueSatFolder.add(guiParams, 'hue', -Math.PI, Math.PI, 0.001).name('Hue').onChange((v) => {
+  hueSatPass.uniforms.hue.value = v;
+});
+hueSatFolder.add(guiParams, 'saturation', -1, 1, 0.001).name('Saturation').onChange((v) => {
+  hueSatPass.uniforms.saturation.value = v;
 });
 
 // -- Glitch folder --
