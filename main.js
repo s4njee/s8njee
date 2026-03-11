@@ -283,8 +283,6 @@ const glitchPass = new ShaderPass(GlitchShader);
 glitchPass.enabled = false;
 composer.addPass(glitchPass);
 
-let glitchTimer = null;
-const GLITCH_DURATION = 0.4; // seconds
 let glitchElapsed = 0;
 let glitchActive = false;
 
@@ -332,11 +330,14 @@ function refreshPostProcessingPasses() {
 }
 
 let bloomRingActive = false;
+function syncGuiDisplay() {
+  gui.controllersRecursive().forEach((c) => c.updateDisplay());
+}
+
 function switchFx(mode) {
   currentFx = mode;
   refreshPostProcessingPasses();
-  gui.controllersRecursive().forEach(c => c.updateDisplay());
-  updateFxButtons();
+  syncGuiDisplay();
 }
 
 
@@ -380,6 +381,7 @@ const guiParams = {
   toneMapping: 'ACESFilmic',
 
   // Ambient light
+  ambientOverrideEnabled: false,
   ambientIntensity: 0.2,
   ambientColor: '#ffffff',
 
@@ -487,6 +489,7 @@ toneFolder.add(guiParams, 'toneMapping', ['NoToneMapping', 'Linear', 'Reinhard',
 
 // -- Ambient Light folder --
 const ambientFolder = gui.addFolder('Ambient Light');
+ambientFolder.add(guiParams, 'ambientOverrideEnabled').name('Override Enabled');
 ambientFolder.add(guiParams, 'ambientIntensity', 0, 10, 0.01).name('Intensity');
 ambientFolder.addColor(guiParams, 'ambientColor').name('Color');
 
@@ -509,6 +512,19 @@ let guiVisible = false;
 function toggleGUI() {
   guiVisible = !guiVisible;
   if (guiVisible) gui.show(); else gui.hide();
+}
+
+function cycleStylizedPasses() {
+  if (guiParams.scanlineEnabled) {
+    guiParams.scanlineEnabled = false;
+    guiParams.linocutEnabled = true;
+  } else if (guiParams.linocutEnabled) {
+    guiParams.linocutEnabled = false;
+  } else {
+    guiParams.scanlineEnabled = true;
+  }
+  refreshPostProcessingPasses();
+  syncGuiDisplay();
 }
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -702,13 +718,12 @@ function currentModels() { return currentSetDef().models; }
 // of having baked-in glow that ignores the ring/particle light effects.
 function applyMaterialOverrides(model, setIndex, modelIndex) {
   const def = SET_DEFS[setIndex];
-  const hasBloom = def.bloomOverrides?.[modelIndex];
 
   model.traverse((child) => {
     if (!child.isMesh || !child.material) return;
     const mat = child.material;
 
-      if (mat.emissiveMap) {
+    if (mat.emissiveMap) {
       mat.emissiveMap = null;
       mat.emissive.set(0x000000);
       mat.needsUpdate = true;
@@ -846,31 +861,81 @@ const rimuruLogoMesh = create3DLogo('/set8/rimuru_logo.png', 900 / 615, 3.0, [-3
 // Map set index → logo mesh (for visibility toggling)
 const setLogos = { 0: fateLogoMesh, 1: evaLogoMesh, 5: opLogoMesh, 6: rimuruLogoMesh };
 
+function hideAllOverlays() {
+  mahoragaText.visible = false;
+  allSceneTexts.forEach((t) => { t.visible = false; });
+  Object.values(setLogos).forEach((mesh) => { mesh.visible = false; });
+  csmLogoMesh.visible = false;
+}
+
 // ── Text/logo visibility ────────────────────────────────────────────────────
 
 function updateTextVisibility(modelIndex) {
   const show = modelIndex >= 0;
   mahoragaText.visible = show && currentSetIndex === 4;
 
-  // 3D logos
   for (const [idx, mesh] of Object.entries(setLogos)) {
     mesh.visible = show && currentSetIndex === Number(idx);
   }
 
-  // Per-model logo overrides
   csmLogoMesh.visible = show && currentSetIndex === 0 && modelIndex === 5;
   if (csmLogoMesh.visible) fateLogoMesh.visible = false;
 
-  // EVA titles
-  evaTitle.visible = currentSetIndex === 2 && modelIndex === 0;
-  evaSubtitle.visible = currentSetIndex === 2 && modelIndex === 0;
-  evaJpText.visible = currentSetIndex === 2 && modelIndex === 0;
-  eva02Title.visible = currentSetIndex === 2 && modelIndex === 1;
-  eva02Subtitle.visible = currentSetIndex === 2 && modelIndex === 1;
-  eva02JpText.visible = currentSetIndex === 2 && modelIndex === 1;
+  const isEva01 = currentSetIndex === 2 && modelIndex === 0;
+  const isEva02 = currentSetIndex === 2 && modelIndex === 1;
+
+  evaTitle.visible = isEva01;
+  evaSubtitle.visible = isEva01;
+  evaJpText.visible = isEva01;
+  eva02Title.visible = isEva02;
+  eva02Subtitle.visible = isEva02;
+  eva02JpText.visible = isEva02;
 }
 
 // ── Model loading ────────────────────────────────────────────────────────────
+
+function normalizeModelTransform(model, def, index) {
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+
+  const scale = (5 / Math.max(size.x, size.y, size.z)) * 1.5625;
+  model.scale.setScalar(scale);
+
+  box.setFromObject(model);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  model.position.x -= center.x;
+  model.position.z -= center.z;
+  model.position.y -= box.min.y;
+
+  const yOffset = def.positionYOffsetOverrides?.[index] ?? def.positionYOffset ?? -1.2;
+  model.position.y += yOffset;
+
+  if (def.rotationOverride) {
+    model.rotation.x = def.rotationOverride.x;
+    model.rotation.y = def.rotationOverride.y;
+    model.rotation.z = def.rotationOverride.z;
+  } else {
+    model.rotation.y = 0.35;
+  }
+}
+
+function applyModelTextureFiltering(model) {
+  const maxAniso = renderer.capabilities.getMaxAnisotropy();
+  model.traverse((child) => {
+    if (!child.isMesh) return;
+    const mats = Array.isArray(child.material) ? child.material : [child.material];
+    for (const mat of mats) {
+      for (const prop of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap']) {
+        if (mat[prop]) {
+          mat[prop].anisotropy = maxAniso;
+          mat[prop].needsUpdate = true;
+        }
+      }
+    }
+  });
+}
 
 // Load a model by index within the current set. Fades out the canvas,
 // loads the GLB (or pulls from cache), normalizes scale/position, applies
@@ -884,9 +949,11 @@ function loadModel(index) {
   const entry = currentModels()[index];
   const def = currentSetDef();
 
-  if (modelCache.has(index)) {
+  const cacheKey = entry.path;
+
+  if (modelCache.has(cacheKey)) {
     setTimeout(() => {
-      const cached = modelCache.get(index);
+      const cached = modelCache.get(cacheKey);
       swapModel(cached.model, entry.name, cached.animations);
       updateTextVisibility(index);
       revealScene();
@@ -905,51 +972,11 @@ function loadModel(index) {
     const model = gltf.scene;
     const animations = gltf.animations;
 
-    // Normalize: fit model into a ~7.8 unit tall bounding box (5 * 1.5625)
-    const box = new THREE.Box3().setFromObject(model);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const scale = (5 / Math.max(size.x, size.y, size.z)) * 1.5625;
-    model.scale.setScalar(scale);
-
-    // Center horizontally, place on ground
-    box.setFromObject(model);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    model.position.x -= center.x;
-    model.position.z -= center.z;
-    model.position.y -= box.min.y;
-    const yOffset = def.positionYOffsetOverrides?.[index] ?? def.positionYOffset ?? -1.2;
-    model.position.y += yOffset;
-
-    // Rotation
-    if (def.rotationOverride) {
-      model.rotation.x = def.rotationOverride.x;
-      model.rotation.y = def.rotationOverride.y;
-      model.rotation.z = def.rotationOverride.z;
-    } else {
-      model.rotation.y = 0.35;
-    }
-
-    // Anisotropic filtering — drastically reduces texture jaggies at oblique angles
-    const maxAniso = renderer.capabilities.getMaxAnisotropy();
-    model.traverse((child) => {
-      if (!child.isMesh) return;
-      const mats = Array.isArray(child.material) ? child.material : [child.material];
-      for (const mat of mats) {
-        for (const prop of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap']) {
-          if (mat[prop]) {
-            mat[prop].anisotropy = maxAniso;
-            mat[prop].needsUpdate = true;
-          }
-        }
-      }
-    });
-
-    // Material overrides
+    normalizeModelTransform(model, def, index);
+    applyModelTextureFiltering(model);
     applyMaterialOverrides(model, currentSetIndex, index);
 
-    modelCache.set(index, { model, animations });
+    modelCache.set(cacheKey, { model, animations });
     setTimeout(() => {
       swapModel(model, entry.name, animations);
       updateTextVisibility(index);
@@ -1086,15 +1113,11 @@ function switchLightingMode(mode) {
   particles.visible = mode === 1;
   if (mode === 0) glowLights.forEach(l => l.intensity = 0);
   guiParams.lightingMode = mode === 0 ? 'A (Scene)' : 'B (Particles)';
-  gui.controllersRecursive().forEach(c => c.updateDisplay());
+  syncGuiDisplay();
   updateModeButtons();
 }
 
 // ── UI: FX selector ──────────────────────────────────────────────────────────
-
-function updateFxButtons() {} // no-op, bloom toggled via key '4'
-
-
 
 // ── White mode ───────────────────────────────────────────────────────────────
 
@@ -1113,33 +1136,22 @@ function applyWhiteMode() {
 
   updateSetButtons();
   updateModeButtons();
-  updateFxButtons();
 }
 
 // ── Set switching ────────────────────────────────────────────────────────────
 
 function switchSet(index) {
   currentSetIndex = index;
-  modelCache.clear();
   currentModelIndex = -1;
 
   const def = currentSetDef();
+  hideAllOverlays();
 
-  // Hide all overlays
-  mahoragaText.visible = false;
-  allSceneTexts.forEach(t => t.visible = false);
-  for (const mesh of Object.values(setLogos)) mesh.visible = false;
-  csmLogoMesh.visible = false;
-
-  // Star Wars CSS logo
   swLogo.style.display = def.nullBackground ? 'block' : 'none';
   scene.background = def.nullBackground ? null : new THREE.Color(whiteMode ? 0xffffff : 0x111111);
 
-  // Defer lighting mode switch until model is ready (via pendingLightingMode)
   pendingLightingMode = def.defaultLighting ?? 0;
   updateSetButtons();
-
-  // Load default model
   loadModel(def.defaultModel ?? 0);
 }
 
@@ -1151,46 +1163,34 @@ SET_DEFS.forEach((def, i) => {
   if (def.hotkey) hotkeyMap[def.hotkey] = i;
 });
 
+function toggleWhiteMode() {
+  whiteMode = !whiteMode;
+  guiParams.whiteMode = whiteMode;
+  syncGuiDisplay();
+  applyWhiteMode();
+}
+
+const keyHandlers = {
+  '4': () => switchFx(currentFx === 1 ? 0 : 1),
+  '6': toggleWhiteMode,
+  g: toggleGUI,
+  G: toggleGUI,
+  s: cycleStylizedPasses,
+  S: cycleStylizedPasses,
+};
+
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Tab') {
     e.preventDefault();
     switchSet((currentSetIndex + 1) % SET_DEFS.length);
     return;
   }
-  if (e.key === '4') {
-    switchFx(currentFx === 1 ? 0 : 1);
+
+  if (keyHandlers[e.key]) {
+    keyHandlers[e.key]();
     return;
   }
-  if (e.key === '6') {
-    whiteMode = !whiteMode;
-    guiParams.whiteMode = whiteMode;
-    gui.controllersRecursive().forEach(c => c.updateDisplay());
-    applyWhiteMode();
-    return;
-  }
-  if (e.key === 'g' || e.key === 'G') {
-    toggleGUI();
-    return;
-  }
-  if (e.key === 's' || e.key === 'S') {
-    if (scanlinePass.enabled) {
-      // Switch to linocut
-      scanlinePass.enabled = false;
-      linocutPass.enabled = true;
-      guiParams.scanlineEnabled = false;
-      guiParams.linocutEnabled = true;
-    } else if (linocutPass.enabled) {
-      // Turn both off
-      linocutPass.enabled = false;
-      guiParams.linocutEnabled = false;
-    } else {
-      // Turn on scanline
-      scanlinePass.enabled = true;
-      guiParams.scanlineEnabled = true;
-    }
-    gui.controllersRecursive().forEach(c => c.updateDisplay());
-    return;
-  }
+
   if (hotkeyMap[e.key] !== undefined) {
     switchSet(hotkeyMap[e.key]);
     return;
@@ -1411,16 +1411,17 @@ function getLightingStyle() {
   return def.lightingStyle;
 }
 
+function applyAmbientOverrides() {
+  if (!guiParams.ambientOverrideEnabled) return;
+  ambient.color.set(guiParams.ambientColor);
+  ambient.intensity = guiParams.ambientIntensity;
+}
+
 // Mode A lighting — dispatches to the appropriate lighting preset each frame
 function updateSceneLighting() {
   const style = getLightingStyle();
   ambient.color.set(0xffffff);
   resetAllLights();
-
-  // If GUI is visible, let the ambient folder override base ambient values
-  if (guiVisible) {
-    ambient.color.set(guiParams.ambientColor);
-  }
 
   const angle = Date.now() * 0.0004;
 
@@ -1543,10 +1544,7 @@ function updateSceneLighting() {
     }
   }
 
-  // GUI ambient overrides (when panel is open, slider takes precedence)
-  if (guiVisible) {
-    ambient.intensity = guiParams.ambientIntensity;
-  }
+  applyAmbientOverrides();
 }
 
 // ── Animate ──────────────────────────────────────────────────────────────────
