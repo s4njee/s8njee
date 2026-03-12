@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 
 export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, getMonolith, guiParams }) {
+  const RING_TOP = 8;
+  const RING_BOTTOM = -3;
+  const RING_RANGE = RING_TOP - RING_BOTTOM;
+  const RING_SPEED = 0.0004;
+
   const ambient = new THREE.AmbientLight(0xffffff, 0);
   scene.add(ambient);
 
@@ -88,11 +93,6 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
   scene.add(heroSpotLight);
   scene.add(heroSpotLight.target);
 
-  const RING_TOP = 8;
-  const RING_BOTTOM = -3;
-  const RING_RANGE = RING_TOP - RING_BOTTOM;
-  const RING_SPEED = 0.0004;
-
   let lightFrame = 0;
   const tempColor = new THREE.Color();
 
@@ -127,92 +127,11 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     ambient.intensity = guiParams.ambientIntensity;
   }
 
-  function updateParticleLighting() {
-    resetAllLights();
-    ambient.color.set(0xffffff);
-    ambient.intensity = 0.08;
-
-    const pos = particles.geometry.attributes.position.array;
-    for (let i = 0; i < particleCount; i++) {
-      pos[i * 3 + 1] -= velocities[i];
-      pos[i * 3] += Math.sin(Date.now() * 0.001 + i) * 0.002;
-      if (pos[i * 3 + 1] < -1) {
-        pos[i * 3 + 1] = 25;
-        pos[i * 3] = (Math.random() - 0.5) * 30;
-        pos[i * 3 + 2] = (Math.random() - 0.5) * 50;
-      }
-    }
-    particles.geometry.attributes.position.needsUpdate = true;
-
-    const t = Date.now() * 0.005;
-    const hueType = currentSetDef().particleHue;
-    let baseHue;
-
-    if (lightFrame % 4 === 0) {
-      const colors = particles.geometry.attributes.color.array;
-      for (let i = 0; i < particleCount; i++) {
-        const flicker = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * 3 + i * 7.13));
-        if (hueType === 'warm') {
-          baseHue = 0.04 + Math.sin(t) * 0.02 + Math.sin(t * 2.3) * 0.01 + Math.sin(t * 5.7) * 0.01;
-          tempColor.setHSL(baseHue + Math.sin(i * 3.77 + t) * 0.03, 1.0, 0.35 + flicker * 0.4);
-        } else if (hueType === 'rainbow') {
-          baseHue = (t * 0.1) % 1.0;
-          tempColor.setHSL((baseHue + i / particleCount + Math.sin(i * 0.5 + t) * 0.1) % 1.0, 1.0, 0.35 + flicker * 0.4);
-        } else {
-          baseHue = 0;
-          tempColor.setHSL(0, 0, 0.6 + flicker * 0.35);
-        }
-        colors[i * 3] = tempColor.r;
-        colors[i * 3 + 1] = tempColor.g;
-        colors[i * 3 + 2] = tempColor.b;
-      }
-      particles.geometry.attributes.color.needsUpdate = true;
-    }
-    if (baseHue === undefined) {
-      baseHue = hueType === 'warm' ? 0.04 : hueType === 'rainbow' ? (t * 0.1) % 1.0 : 0;
-    }
-
-    if (lightFrame % 4 === 0) {
-      const monolith = getMonolith();
-      const mx = monolith.position.x;
-      const my = monolith.position.y;
-      const mz = monolith.position.z;
-      const nearest = [];
-      const pos2 = particles.geometry.attributes.position.array;
-      for (let i = 0; i < particleCount; i++) {
-        const dx = pos2[i * 3] - mx;
-        const dy = pos2[i * 3 + 1] - my;
-        const dz = pos2[i * 3 + 2] - mz;
-        const distSq = dx * dx + dy * dy + dz * dz;
-        if (distSq < GLOW_RADIUS * GLOW_RADIUS) {
-          nearest.push({ x: pos2[i * 3], y: pos2[i * 3 + 1], z: pos2[i * 3 + 2], distSq });
-          if (nearest.length > glowCount * 3) {
-            nearest.sort((a, b) => a.distSq - b.distSq);
-            nearest.length = glowCount;
-          }
-        }
-      }
-      nearest.sort((a, b) => a.distSq - b.distSq);
-      for (let i = 0; i < glowCount; i++) {
-        const light = glowLights[i];
-        if (i < nearest.length) {
-          const particle = nearest[i];
-          light.position.set(particle.x, particle.y, particle.z);
-          light.intensity = (1 - Math.sqrt(particle.distSq) / GLOW_RADIUS) * 6;
-          light.color.setHSL(baseHue, hueType ? (hueType === 'warm' || hueType === 'rainbow' ? 1.0 : 0) : 0, 0.5);
-        } else {
-          light.intensity = 0;
-        }
-      }
-    }
-    lightFrame++;
+  function getPulse(progress) {
+    return Math.min(Math.min(progress, 1 - progress) * 5, 1);
   }
 
-  function updateSceneLighting() {
-    const style = getLightingStyle();
-    ambient.color.set(0xffffff);
-    resetAllLights();
-    const monolith = getMonolith();
+  function setHeroSpotlightTarget(monolith) {
     heroSpotLight.target.position.copy(monolith.position);
     heroSpotLight.target.updateMatrixWorld();
     heroSpotLight.position.set(
@@ -220,130 +139,260 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
       monolith.position.y + 10,
       monolith.position.z + 8,
     );
+  }
 
-    const angle = Date.now() * 0.0004;
-    switch (style) {
-      case 'neon':
-        ambient.color.set(0xcc44ff);
-        ambient.intensity = 1.0;
-        warmLight.color.set(0xff1493);
-        coolLight.color.set(0x8800ff);
-        warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
-        coolLight.position.set(Math.cos(angle + Math.PI) * 4, 2, Math.sin(angle + Math.PI) * 4);
-        warmLight.intensity = 2;
-        coolLight.intensity = 2;
-        break;
+  function animateDirectionalRingPair({ nowMs, intensityScale, speed = RING_SPEED, zOffset = 2 }) {
+    const progress = nowMs * speed;
+    const p1 = progress % 1.0;
+    const p2 = (progress + 0.5) % 1.0;
+    dirRingLight.position.set(0, RING_TOP - p1 * RING_RANGE, zOffset);
+    dirRingLight.intensity = intensityScale * getPulse(p1);
+    dirRingLight2.position.set(0, RING_TOP - p2 * RING_RANGE, -zOffset);
+    dirRingLight2.intensity = intensityScale * getPulse(p2);
+  }
 
-      case 'splitTone': {
-        const splitAngle = Date.now() * 0.0003;
-        warmLight.color.set(0xff8844);
-        coolLight.color.set(0x4488ff);
-        warmLight.position.set(Math.cos(splitAngle) * 4, 3, Math.sin(splitAngle) * 4);
-        coolLight.position.set(Math.cos(splitAngle + Math.PI) * 4, 3, Math.sin(splitAngle + Math.PI) * 4);
-        ambient.intensity = 0.3;
-        warmLight.intensity = 1.5;
-        coolLight.intensity = 1.5;
-        break;
-      }
+  function animatePointRingPair({ nowMs, intensityScale, speed = RING_SPEED, distance = 30 }) {
+    ringLight.distance = distance;
+    ringLight2.distance = distance;
+    const progress = nowMs * speed;
+    const p1 = progress % 1.0;
+    const p2 = (progress + 0.5) % 1.0;
+    ringLight.position.set(0, RING_TOP - p1 * RING_RANGE, 0);
+    ringLight.intensity = intensityScale * getPulse(p1);
+    ringLight2.position.set(0, RING_TOP - p2 * RING_RANGE, 0);
+    ringLight2.intensity = intensityScale * getPulse(p2);
+  }
 
-      case 'dualRingBright': {
-        ambient.intensity = 0.4;
-        const now = Date.now() * RING_SPEED;
-        const p1 = now % 1.0;
-        const p2 = (now + 0.5) % 1.0;
-        dirRingLight.position.set(0, RING_TOP - p1 * RING_RANGE, 2);
-        dirRingLight.intensity = 6 * Math.min(Math.min(p1, 1 - p1) * 5, 1);
-        dirRingLight2.position.set(0, RING_TOP - p2 * RING_RANGE, -2);
-        dirRingLight2.intensity = 6 * Math.min(Math.min(p2, 1 - p2) * 5, 1);
-        break;
-      }
+  function animateSingleDirectionalRing({ nowMs, intensityScale, speed = 0.00015, zOffset = 2 }) {
+    const progress = (nowMs * speed) % 1.0;
+    const center = Math.abs(progress - 0.5) * 2;
+    dirRingLight.position.set(0, RING_TOP - progress * RING_RANGE, zOffset);
+    dirRingLight.intensity = intensityScale * Math.pow(1 - center, 4);
+  }
 
-      case 'dualRing': {
-        ambient.intensity = 0.2;
-        const now = Date.now() * RING_SPEED;
-        const p1 = now % 1.0;
-        const p2 = (now + 0.5) % 1.0;
-        dirRingLight.position.set(0, RING_TOP - p1 * RING_RANGE, 2);
-        dirRingLight.intensity = 3 * Math.min(Math.min(p1, 1 - p1) * 5, 1);
-        dirRingLight2.position.set(0, RING_TOP - p2 * RING_RANGE, -2);
-        dirRingLight2.intensity = 3 * Math.min(Math.min(p2, 1 - p2) * 5, 1);
-        break;
-      }
+  function animateStreetlights({
+    nowMs,
+    speed,
+    far,
+    near,
+    xOffset = 1.5,
+    height = 6,
+    intensityScale,
+    falloffDivisor,
+  }) {
+    const range = far - near;
+    const progress = nowMs * speed;
+    const p1 = progress % 1.0;
+    const p2 = (progress + 0.5) % 1.0;
+    const z1 = far - p1 * range;
+    const z2 = far - p2 * range;
+    const falloff1 = Math.exp(-(z1 * z1) / falloffDivisor);
+    const falloff2 = Math.exp(-(z2 * z2) / falloffDivisor);
+    streetLight1.position.set(-xOffset, height, z1);
+    streetLight2.position.set(xOffset, height, z2);
+    streetLight1.intensity = intensityScale * falloff1;
+    streetLight2.intensity = intensityScale * falloff2;
+  }
 
-      case 'singleRing': {
-        ambient.intensity = 0.05;
-        const now = Date.now() * 0.00015;
-        const p = now % 1.0;
-        const center = Math.abs(p - 0.5) * 2;
-        dirRingLight.position.set(0, RING_TOP - p * RING_RANGE, 2);
-        dirRingLight.intensity = 4 * Math.pow(1 - center, 4);
-        break;
-      }
-
-      case 'streetlightSlow': {
-        ambient.intensity = 0.5;
-        const speed = 0.00012;
-        const far = 20;
-        const near = -15;
-        const range = far - near;
-        const progress = Date.now() * speed;
-        const p1 = progress % 1.0;
-        const p2 = (progress + 0.5) % 1.0;
-        const z1 = far - p1 * range;
-        const z2 = far - p2 * range;
-        const falloff1 = Math.exp(-z1 * z1 / 25);
-        const falloff2 = Math.exp(-z2 * z2 / 25);
-        streetLight1.position.set(-1.5, 6, z1);
-        streetLight2.position.set(1.5, 6, z2);
-        streetLight1.intensity = 20 * falloff1;
-        streetLight2.intensity = 20 * falloff2;
-        break;
-      }
-
-      case 'streetlight': {
-        ambient.intensity = 0.5;
-        const speed = 0.0008;
-        const far = 15;
-        const near = -10;
-        const range = far - near;
-        const progress = Date.now() * speed;
-        const p1 = progress % 1.0;
-        const p2 = (progress + 0.5) % 1.0;
-        const z1 = far - p1 * range;
-        const z2 = far - p2 * range;
-        const falloff1 = Math.exp(-z1 * z1 / 18);
-        const falloff2 = Math.exp(-z2 * z2 / 18);
-        streetLight1.position.set(-1.5, 6, z1);
-        streetLight2.position.set(1.5, 6, z2);
-        streetLight1.intensity = 20 * falloff1;
-        streetLight2.intensity = 20 * falloff2;
-        break;
-      }
-
-      case 'ambientBright':
-        ambient.intensity = 8.4;
-        dirRingLight.position.set(0, 10, 2);
-        dirRingLight.target.position.set(0, 0, 0);
-        dirRingLight.intensity = 6;
-        break;
-
-      case 'ambientOnly':
-        ambient.intensity = 2.8;
-        break;
-
-      case 'pointRing':
-      default: {
-        ringLight.distance = 30;
-        ringLight2.distance = 30;
-        const now = Date.now() * RING_SPEED;
-        const p1 = now % 1.0;
-        const p2 = (now + 0.5) % 1.0;
-        ringLight.position.set(0, RING_TOP - p1 * RING_RANGE, 0);
-        ringLight.intensity = 5 * Math.min(Math.min(p1, 1 - p1) * 5, 1);
-        ringLight2.position.set(0, RING_TOP - p2 * RING_RANGE, 0);
-        ringLight2.intensity = 5 * Math.min(Math.min(p2, 1 - p2) * 5, 1);
+  function animateParticlePositions({ nowMs }) {
+    const positions = particles.geometry.attributes.position.array;
+    for (let i = 0; i < particleCount; i++) {
+      positions[i * 3 + 1] -= velocities[i];
+      positions[i * 3] += Math.sin(nowMs * 0.001 + i) * 0.002;
+      if (positions[i * 3 + 1] < -1) {
+        positions[i * 3 + 1] = 25;
+        positions[i * 3] = (Math.random() - 0.5) * 30;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 50;
       }
     }
+    particles.geometry.attributes.position.needsUpdate = true;
+    return positions;
+  }
+
+  function getParticleBaseHue({ hueType, time }) {
+    if (hueType === 'warm') {
+      return 0.04 + Math.sin(time) * 0.02 + Math.sin(time * 2.3) * 0.01 + Math.sin(time * 5.7) * 0.01;
+    }
+    if (hueType === 'rainbow') {
+      return (time * 0.1) % 1.0;
+    }
+    return 0;
+  }
+
+  function updateParticleColors({ time, hueType }) {
+    const colors = particles.geometry.attributes.color.array;
+    let baseHue = getParticleBaseHue({ hueType, time });
+
+    for (let i = 0; i < particleCount; i++) {
+      const flicker = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(time * 3 + i * 7.13));
+      if (hueType === 'warm') {
+        tempColor.setHSL(baseHue + Math.sin(i * 3.77 + time) * 0.03, 1.0, 0.35 + flicker * 0.4);
+      } else if (hueType === 'rainbow') {
+        tempColor.setHSL((baseHue + i / particleCount + Math.sin(i * 0.5 + time) * 0.1) % 1.0, 1.0, 0.35 + flicker * 0.4);
+      } else {
+        tempColor.setHSL(0, 0, 0.6 + flicker * 0.35);
+      }
+      colors[i * 3] = tempColor.r;
+      colors[i * 3 + 1] = tempColor.g;
+      colors[i * 3 + 2] = tempColor.b;
+    }
+
+    particles.geometry.attributes.color.needsUpdate = true;
+    return baseHue;
+  }
+
+  function collectNearestParticlesToMonolith(positions, monolithPosition) {
+    const nearest = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      const x = positions[i * 3];
+      const y = positions[i * 3 + 1];
+      const z = positions[i * 3 + 2];
+      const dx = x - monolithPosition.x;
+      const dy = y - monolithPosition.y;
+      const dz = z - monolithPosition.z;
+      const distSq = dx * dx + dy * dy + dz * dz;
+
+      if (distSq < GLOW_RADIUS * GLOW_RADIUS) {
+        nearest.push({ x, y, z, distSq });
+        if (nearest.length > glowCount * 3) {
+          nearest.sort((a, b) => a.distSq - b.distSq);
+          nearest.length = glowCount;
+        }
+      }
+    }
+
+    nearest.sort((a, b) => a.distSq - b.distSq);
+    return nearest;
+  }
+
+  function updateParticleGlowLights({ baseHue, hueType, nearestParticles }) {
+    const saturation = hueType === 'warm' || hueType === 'rainbow' ? 1.0 : 0;
+
+    for (let i = 0; i < glowCount; i++) {
+      const light = glowLights[i];
+      if (i < nearestParticles.length) {
+        const particle = nearestParticles[i];
+        light.position.set(particle.x, particle.y, particle.z);
+        light.intensity = (1 - Math.sqrt(particle.distSq) / GLOW_RADIUS) * 6;
+        light.color.setHSL(baseHue, saturation, 0.5);
+      } else {
+        light.intensity = 0;
+      }
+    }
+  }
+
+  const sceneLightingEffects = {
+    neon: ({ nowMs }) => {
+      const angle = nowMs * 0.0004;
+      ambient.color.set(0xcc44ff);
+      ambient.intensity = 1.0;
+      warmLight.color.set(0xff1493);
+      coolLight.color.set(0x8800ff);
+      warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
+      coolLight.position.set(Math.cos(angle + Math.PI) * 4, 2, Math.sin(angle + Math.PI) * 4);
+      warmLight.intensity = 2;
+      coolLight.intensity = 2;
+    },
+
+    splitTone: ({ nowMs }) => {
+      const angle = nowMs * 0.0003;
+      warmLight.color.set(0xff8844);
+      coolLight.color.set(0x4488ff);
+      warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
+      coolLight.position.set(Math.cos(angle + Math.PI) * 4, 3, Math.sin(angle + Math.PI) * 4);
+      ambient.intensity = 0.3;
+      warmLight.intensity = 1.5;
+      coolLight.intensity = 1.5;
+    },
+
+    dualRingBright: ({ nowMs }) => {
+      ambient.intensity = 0.4;
+      animateDirectionalRingPair({ nowMs, intensityScale: 6 });
+    },
+
+    dualRing: ({ nowMs }) => {
+      ambient.intensity = 0.2;
+      animateDirectionalRingPair({ nowMs, intensityScale: 3 });
+    },
+
+    singleRing: ({ nowMs }) => {
+      ambient.intensity = 0.05;
+      animateSingleDirectionalRing({ nowMs, intensityScale: 4 });
+    },
+
+    streetlightSlow: ({ nowMs }) => {
+      ambient.intensity = 0.5;
+      animateStreetlights({
+        nowMs,
+        speed: 0.00012,
+        far: 20,
+        near: -15,
+        intensityScale: 20,
+        falloffDivisor: 25,
+      });
+    },
+
+    streetlight: ({ nowMs }) => {
+      ambient.intensity = 0.5;
+      animateStreetlights({
+        nowMs,
+        speed: 0.0008,
+        far: 15,
+        near: -10,
+        intensityScale: 20,
+        falloffDivisor: 18,
+      });
+    },
+
+    ambientBright: () => {
+      ambient.intensity = 8.4;
+      dirRingLight.position.set(0, 10, 2);
+      dirRingLight.target.position.set(0, 0, 0);
+      dirRingLight.intensity = 6;
+    },
+
+    ambientOnly: () => {
+      ambient.intensity = 2.8;
+    },
+
+    pointRing: ({ nowMs }) => {
+      animatePointRingPair({ nowMs, intensityScale: 5 });
+    },
+  };
+
+  function updateParticleLighting() {
+    resetAllLights();
+    ambient.color.set(0xffffff);
+    ambient.intensity = 0.08;
+    const nowMs = Date.now();
+    const positions = animateParticlePositions({ nowMs });
+    const t = nowMs * 0.005;
+    const hueType = currentSetDef().particleHue;
+    let baseHue = getParticleBaseHue({ hueType, time: t });
+
+    if (lightFrame % 4 === 0) {
+      baseHue = updateParticleColors({ time: t, hueType });
+    }
+
+    if (lightFrame % 4 === 0) {
+      const monolith = getMonolith();
+      const nearestParticles = collectNearestParticlesToMonolith(positions, monolith.position);
+      updateParticleGlowLights({ baseHue, hueType, nearestParticles });
+    }
+    lightFrame++;
+  }
+
+  function updateSceneLighting() {
+    const style = getLightingStyle();
+    const effect = sceneLightingEffects[style] ?? sceneLightingEffects.pointRing;
+    const monolith = getMonolith();
+    const nowMs = Date.now();
+
+    ambient.color.set(0xffffff);
+    resetAllLights();
+    setHeroSpotlightTarget(monolith);
+    effect({ monolith, nowMs, style });
 
     heroSpotLight.intensity = style === 'ambientOnly' ? 8 : 5.5;
 
@@ -351,25 +400,19 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
   }
 
   function animateBloomRing() {
-    const ringSpeed = 0.0004;
-    const now = Date.now() * ringSpeed;
-
-    const p1 = now % 1.0;
-    const p2 = (now + 0.5) % 1.0;
-    dirRingLight.position.set(0, RING_TOP - p1 * RING_RANGE, 2);
-    dirRingLight.intensity = 1.5 * Math.min(Math.min(p1, 1 - p1) * 5, 1);
-    dirRingLight2.position.set(0, RING_TOP - p2 * RING_RANGE, -2);
-    dirRingLight2.intensity = 1.5 * Math.min(Math.min(p2, 1 - p2) * 5, 1);
+    const nowMs = Date.now();
+    animateDirectionalRingPair({ nowMs, intensityScale: 1.5 });
 
     const lowTop = 3;
     const lowBottom = -2;
     const lowRange = lowTop - lowBottom;
-    const p3 = (now * 0.8) % 1.0;
-    const p4 = (now * 0.8 + 0.5) % 1.0;
-    streetLight1.position.set(-1.5, lowTop - p3 * lowRange, 2);
-    streetLight1.intensity = 1.5 * Math.min(Math.min(p3, 1 - p3) * 5, 1);
-    streetLight2.position.set(1.5, lowTop - p4 * lowRange, -2);
-    streetLight2.intensity = 1.5 * Math.min(Math.min(p4, 1 - p4) * 5, 1);
+    const progress = nowMs * RING_SPEED * 0.8;
+    const p1 = progress % 1.0;
+    const p2 = (progress + 0.5) % 1.0;
+    streetLight1.position.set(-1.5, lowTop - p1 * lowRange, 2);
+    streetLight1.intensity = 1.5 * getPulse(p1);
+    streetLight2.position.set(1.5, lowTop - p2 * lowRange, -2);
+    streetLight2.intensity = 1.5 * getPulse(p2);
   }
 
   return {

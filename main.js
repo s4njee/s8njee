@@ -36,6 +36,10 @@ controls.update();
 
 const clock = new THREE.Clock();
 const guiParams = createDefaultGuiParams();
+const FX_NONE = 0;
+const FX_CINEMATIC = 1;
+const FX_DATABEND = 2;
+const FX_CROSSHATCH = 3;
 
 const postProcessing = createPostProcessing({
   renderer,
@@ -49,10 +53,11 @@ const materialManager = createMaterialManager(renderer);
 
 let whiteMode = false;
 let xrayMode = false;
+let restoreChromaticAberrationAfterXray = false;
 let currentSetIndex = 2;
 let currentModelIndex = -1;
 let lightingMode = 0;
-let currentFx = 0;
+let currentFx = FX_NONE;
 let pendingLightingMode = null;
 let firstLoad = true;
 let mixer = null;
@@ -122,6 +127,10 @@ function switchFx(mode) {
   currentFx = mode;
   refreshPostProcessingPasses();
   guiControls.syncGuiDisplay();
+}
+
+function toggleFx(mode) {
+  switchFx(currentFx === mode ? FX_NONE : mode);
 }
 
 function revealScene() {
@@ -246,6 +255,19 @@ function toggleWhiteMode() {
 
 function toggleXrayMode() {
   xrayMode = !xrayMode;
+  if (xrayMode) {
+    restoreChromaticAberrationAfterXray = guiParams.chromaticAberrationEnabled;
+    if (guiParams.chromaticAberrationEnabled) {
+      guiParams.chromaticAberrationEnabled = false;
+      refreshPostProcessingPasses();
+      guiControls.syncGuiDisplay();
+    }
+  } else if (restoreChromaticAberrationAfterXray) {
+    guiParams.chromaticAberrationEnabled = true;
+    restoreChromaticAberrationAfterXray = false;
+    refreshPostProcessingPasses();
+    guiControls.syncGuiDisplay();
+  }
   refreshDisplayedModelMaterials();
 }
 
@@ -275,8 +297,10 @@ SET_DEFS.forEach((def, index) => {
 });
 
 const keyHandlers = {
-  '4': () => switchFx(currentFx === 1 ? 0 : 1),
+  '4': () => toggleFx(FX_CINEMATIC),
   '6': toggleWhiteMode,
+  z: () => toggleFx(FX_DATABEND),
+  Z: () => toggleFx(FX_DATABEND),
   g: guiControls.toggleGUI,
   G: guiControls.toggleGUI,
   c: toggleChromaticAberration,
@@ -345,6 +369,7 @@ function animate() {
   }
 
   if (postProcessing.hasActivePostProcessing()) {
+    postProcessing.renderIsolatedModelLayer();
     postProcessing.composer.render();
   } else {
     renderer.render(scene, camera);
