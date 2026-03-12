@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
+import { resolveAssetUrl } from './asset-url.js';
 
 export function createOverlays(scene) {
   function createText(opts) {
@@ -23,7 +24,7 @@ export function createOverlays(scene) {
   }
 
   function create3DLogo(texturePath, aspect, height, position, extraOpts = {}) {
-    const texture = new THREE.TextureLoader().load(texturePath);
+    const texture = new THREE.TextureLoader().load(resolveAssetUrl(texturePath));
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       transparent: true,
@@ -41,7 +42,7 @@ export function createOverlays(scene) {
 
   const mahoragaText = createText({
     text: 'EIGHT-HANDLED SWORD\nDIVERGENT SILA\nDIVINE GENERAL\nMAHORAGA',
-    font: '/fonts/anton.ttf',
+    font: resolveAssetUrl('/fonts/anton.ttf'),
     fontSize: 0.35,
     lineHeight: 1.3,
     anchorX: 'center',
@@ -52,14 +53,14 @@ export function createOverlays(scene) {
   });
   const evaTitle = createText({
     text: 'EVANGELION UNIT-01',
-    font: '/fonts/evangelion.ttf',
+    font: resolveAssetUrl('/fonts/evangelion.ttf'),
     fontSize: 0.4,
     letterSpacing: 0.08,
     position: [-6.5, 1.2, 0],
   });
   const evaSubtitle = createText({
     text: 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN',
-    font: '/fonts/evangelion.ttf',
+    font: resolveAssetUrl('/fonts/evangelion.ttf'),
     fontSize: 0.13,
     letterSpacing: 0.04,
     anchorY: 'top',
@@ -68,7 +69,7 @@ export function createOverlays(scene) {
   });
   const evaJpText = createText({
     text: '汎用ヒト型決戦兵器 人造人間エヴァンゲリオン初号機',
-    font: '/fonts/evangelion.ttf',
+    font: resolveAssetUrl('/fonts/evangelion.ttf'),
     fontSize: 0.13,
     letterSpacing: 0.02,
     anchorY: 'top',
@@ -77,7 +78,7 @@ export function createOverlays(scene) {
   });
   const eva02Title = createText({
     text: 'EVANGELION UNIT-02',
-    font: '/fonts/evangelion.ttf',
+    font: resolveAssetUrl('/fonts/evangelion.ttf'),
     fontSize: 0.4,
     letterSpacing: 0.08,
     anchorX: 'right',
@@ -85,7 +86,7 @@ export function createOverlays(scene) {
   });
   const eva02Subtitle = createText({
     text: 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN',
-    font: '/fonts/evangelion.ttf',
+    font: resolveAssetUrl('/fonts/evangelion.ttf'),
     fontSize: 0.13,
     letterSpacing: 0.04,
     anchorX: 'right',
@@ -95,7 +96,7 @@ export function createOverlays(scene) {
   });
   const eva02JpText = createText({
     text: '汎用ヒト型決戦兵器 人造人間エヴァンゲリオン弐号機',
-    font: '/fonts/evangelion.ttf',
+    font: resolveAssetUrl('/fonts/evangelion.ttf'),
     fontSize: 0.13,
     letterSpacing: 0.02,
     anchorX: 'right',
@@ -107,7 +108,7 @@ export function createOverlays(scene) {
   const allSceneTexts = [evaTitle, evaSubtitle, evaJpText, eva02Title, eva02Subtitle, eva02JpText, mahoragaText];
 
   const swLogo = document.createElement('img');
-  swLogo.src = '/set4/starwars_logo_yellow.svg';
+  swLogo.src = resolveAssetUrl('/set4/starwars_logo_yellow.svg');
   swLogo.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-55%);width:50vw;opacity:0.12;pointer-events:none;z-index:0;display:none';
   document.body.insertBefore(swLogo, document.body.firstChild);
 

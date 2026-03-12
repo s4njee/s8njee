@@ -1,3 +1,5 @@
+import { resolveAssetUrl } from './asset-url.js';
+
 export function createUI({
   setDefs,
   getWhiteMode,
@@ -15,7 +17,7 @@ export function createUI({
   musicBtn.style.cssText = 'position:fixed;top:16px;right:48px;color:rgba(255,255,255,0.5);font-size:60px;cursor:pointer;z-index:100;user-select:none;transition:color 0.2s,text-shadow 0.2s';
   document.body.appendChild(musicBtn);
 
-  const bgm = new Audio('/set3/bgm.mp3');
+  const bgm = new Audio(resolveAssetUrl('/set3/bgm.mp3'));
   bgm.loop = true;
 
   let labelTimeout;

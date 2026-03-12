@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { resolveAssetUrl } from './asset-url.js';
 
 export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, getMonolith, guiParams }) {
   const RING_TOP = 8;
@@ -23,7 +24,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
   particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
   particleGeo.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
 
-  const particleTexture = new THREE.TextureLoader().load('/textures/star_02.png');
+  const particleTexture = new THREE.TextureLoader().load(resolveAssetUrl('/textures/star_02.png'));
   const particleMat = new THREE.PointsMaterial({
     size: 0.18,
     sizeAttenuation: true,

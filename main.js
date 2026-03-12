@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 import { createGuiControls, createDefaultGuiParams } from './src/monolith/gui.js';
+import { resolveAssetUrl } from './src/monolith/asset-url.js';
 import { createLightingRig } from './src/monolith/lighting.js';
 import { createMaterialManager } from './src/monolith/materials.js';
 import { createOverlays } from './src/monolith/overlays.js';
@@ -187,7 +188,7 @@ function loadModel(index) {
   }
 
   loader.load(
-    entry.path,
+    resolveAssetUrl(entry.path),
     (gltf) => {
       if (firstLoad) {
         firstLoad = false;
