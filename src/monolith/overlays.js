@@ -3,6 +3,8 @@ import { Text } from 'troika-three-text';
 import { resolveAssetUrl } from './asset-url.js';
 
 export function createOverlays(scene) {
+  const disposables = [];
+
   function createText(opts) {
     const text = new Text();
     text.text = opts.text;
@@ -20,6 +22,10 @@ export function createOverlays(scene) {
     text.visible = false;
     text.sync();
     scene.add(text);
+    disposables.push(() => {
+      scene.remove(text);
+      text.dispose();
+    });
     return text;
   }
 
@@ -37,6 +43,12 @@ export function createOverlays(scene) {
     mesh.position.set(...position);
     mesh.visible = false;
     scene.add(mesh);
+    disposables.push(() => {
+      scene.remove(mesh);
+      geometry.dispose();
+      material.map?.dispose();
+      material.dispose();
+    });
     return mesh;
   }
 
@@ -111,6 +123,7 @@ export function createOverlays(scene) {
   swLogo.src = resolveAssetUrl('/set4/starwars_logo_yellow.svg');
   swLogo.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-55%);width:50vw;opacity:0.12;pointer-events:none;z-index:0;display:none';
   document.body.insertBefore(swLogo, document.body.firstChild);
+  disposables.push(() => swLogo.remove());
 
   const fateLogoMesh = create3DLogo('/set1/fate.png', 594 / 290, 2.0, [4.5, 0.5, -3], { alphaTest: 0.01 });
   const csmLogoMesh = create3DLogo('/set1/chainsawman.png', 1600 / 900, 3.0, [-4.5, 0.5, -3], { alphaTest: 0.01 });
@@ -165,6 +178,9 @@ export function createOverlays(scene) {
 
   return {
     applyWhiteMode,
+    destroy: () => {
+      disposables.forEach((dispose) => dispose());
+    },
     hideAllOverlays,
     setStarWarsLogoVisible,
     updateTextVisibility,

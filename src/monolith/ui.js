@@ -123,6 +123,14 @@ export function createUI({
 
   return {
     applyWhiteMode,
+    destroy: () => {
+      bgm.pause();
+      label.remove();
+      musicBtn.remove();
+      setNav.remove();
+      modeNav.remove();
+      clearTimeout(labelTimeout);
+    },
     updateLabel,
     updateModeButtons,
     updateSetButtons,

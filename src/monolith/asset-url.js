@@ -1,4 +1,6 @@
 export function resolveAssetUrl(path) {
   const normalizedPath = path.startsWith('/') ? path.slice(1) : path;
-  return new URL(normalizedPath, import.meta.env.BASE_URL).toString();
+  const base = import.meta.env.BASE_URL || '/';
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return `${normalizedBase}${normalizedPath}`;
 }

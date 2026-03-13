@@ -26,10 +26,10 @@ export function createDefaultGuiParams() {
     scanlineDensity: 5.13,
     scanlineOpacity: 0.75,
     scanlineScrollSpeed: 0.08,
-    exposure: 0.76,
+    exposure: 1.4,
     toneMapping: 'ACESFilmic',
     ambientOverrideEnabled: false,
-    ambientIntensity: 0.2,
+    ambientIntensity: 0.78,
     ambientColor: '#ffffff',
     backgroundColor: '#111111',
     whiteMode: false,
@@ -164,6 +164,7 @@ export function createGuiControls({
   }
 
   return {
+    destroy: () => gui.destroy(),
     guiParams,
     syncGuiDisplay,
     toggleGUI,
