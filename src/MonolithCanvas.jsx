@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useMemo, useRef } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -10,22 +10,23 @@ import { createGuiControls, createDefaultGuiParams } from './monolith/gui.js';
 import { createLightingRig } from './monolith/lighting.js';
 import { createMaterialManager } from './monolith/materials.js';
 import { createOverlays } from './monolith/overlays.js';
-import { createPostProcessing } from './monolith/postprocessing.js';
 import { SET_DEFS } from './monolith/set-defs.js';
 import { createUI } from './monolith/ui.js';
 import { resolveAssetUrl } from './monolith/asset-url.js';
 import {
+  SharedEffectStack,
   createSharedEffectHotkeyListener,
   getHueCycleHue,
+  SHARED_FX_CINEMATIC,
+  SHARED_FX_DATABEND,
+  SHARED_FX_NONE,
+  setChromaticAberrationState,
   toggleChromaticAberrationState,
   toggleHueCycleState,
+  toggleSharedFxMode,
   toggleXrayModeState,
 } from '../../../src/shared/special-effects/index.ts';
 
-const FX_NONE = 0;
-const FX_CINEMATIC = 1;
-const FX_DATABEND = 2;
-const FX_CROSSHATCH = 3;
 const LIGHTING_MODE_SCENE = 0;
 const LIGHTING_MODE_PARTICLES = 1;
 const LIGHTING_MODE_SHANGHAI_BUND = 2;
@@ -35,13 +36,95 @@ const LIGHTING_MODE_LABELS = [
   'C (Shanghai Bund)',
 ];
 const SHANGHAI_BUND_HDR_PATH = '/hdri/shanghai_bund_2k.hdr';
+const CHROMATIC_OSCILLATION_SPEED = 3.2;
+
+function mapMonolithBloomSettings(guiParams) {
+  // Monolith's legacy sliders were tuned for UnrealBloomPass. Translate them
+  // into values that read similarly in @react-three/postprocessing's Bloom.
+  return {
+    intensity: Math.max(1.2, guiParams.bloomStrength * 3.5),
+    radius: Math.min(1, (guiParams.bloomRadius * 2.8) + 0.12),
+    smoothing: THREE.MathUtils.clamp(0.35 + ((1 - guiParams.bloomThreshold) * 0.5), 0, 1),
+    threshold: THREE.MathUtils.clamp((guiParams.bloomThreshold - 0.77) * 0.05, 0, 1),
+  };
+}
+
+function createInitialMonolithState() {
+  return {
+    whiteMode: false,
+    hueCycleEnabled: false,
+    hueCycleBaseHue: 0,
+    hueCycleSavedEnabled: false,
+    hueCycleSavedHue: 0,
+    hueCycleSavedSaturation: 0,
+    hueCycleStartTime: 0,
+    xrayMode: false,
+    restoreChromaticAberrationAfterXray: false,
+    currentSetIndex: 2,
+    currentModelIndex: -1,
+    lightingMode: LIGHTING_MODE_SCENE,
+    currentFx: SHARED_FX_NONE,
+    pixelMosaicEnabled: false,
+    thermalVisionEnabled: false,
+    pendingLightingMode: null,
+    firstLoad: true,
+  };
+}
+
+function canTriggerMonolithGlitch(state) {
+  return (
+    state.currentFx === SHARED_FX_CINEMATIC ||
+    state.currentFx === SHARED_FX_DATABEND ||
+    state.pixelMosaicEnabled ||
+    state.thermalVisionEnabled
+  );
+}
+
+function createMonolithEffectSnapshot(guiParams, state, glitchTriggerToken) {
+  const bloom = mapMonolithBloomSettings(guiParams);
+
+  return {
+    barrelBlurAmount: guiParams.barrelBlurAmount,
+    barrelBlurEnabled: guiParams.barrelBlurEnabled,
+    barrelBlurOffsetX: guiParams.barrelBlurOffsetX,
+    barrelBlurOffsetY: guiParams.barrelBlurOffsetY,
+    bloomEnabled: guiParams.bloomEnabled,
+    bloomIntensity: bloom.intensity,
+    bloomRadius: bloom.radius,
+    bloomSmoothing: bloom.smoothing,
+    bloomThreshold: bloom.threshold,
+    chromaticAberrationEnabled: guiParams.chromaticAberrationEnabled,
+    chromaticModulationOffset: guiParams.chromaticAberrationModulationOffset,
+    chromaticOffsetX: guiParams.chromaticAberrationOffsetX,
+    chromaticOffsetY: guiParams.chromaticAberrationOffsetY,
+    chromaticOscillationSpeed: CHROMATIC_OSCILLATION_SPEED,
+    chromaticRadialModulation: guiParams.chromaticAberrationRadialModulation,
+    cinematicEnabled: state.currentFx === SHARED_FX_CINEMATIC,
+    databendEnabled: state.currentFx === SHARED_FX_DATABEND,
+    glitchDuration: guiParams.glitchDuration,
+    glitchEnabled: canTriggerMonolithGlitch(state),
+    glitchStrength: guiParams.glitchStrength,
+    glitchTriggerToken,
+    hue: guiParams.hue,
+    hueCycleBaseHue: state.hueCycleBaseHue,
+    hueCycleEnabled: state.hueCycleEnabled,
+    hueCycleStartTime: state.hueCycleStartTime,
+    hueSatEnabled: state.currentFx === SHARED_FX_CINEMATIC && guiParams.hueSatEnabled,
+    pixelMosaicEnabled: state.pixelMosaicEnabled,
+    saturation: guiParams.saturation,
+    scanlineDensity: guiParams.scanlineDensity,
+    scanlineEnabled: guiParams.scanlineEnabled,
+    scanlineOpacity: guiParams.scanlineOpacity,
+    scanlineScrollSpeed: guiParams.scanlineScrollSpeed,
+    thermalVisionEnabled: state.thermalVisionEnabled,
+  };
+}
 
 function MonolithScene() {
-  const { gl, scene, camera, size } = useThree();
+  const { gl, scene, camera } = useThree();
   const controlsRef = useRef(null);
   const clockRef = useRef(new THREE.Clock());
   const guiParamsRef = useRef(createDefaultGuiParams());
-  const postProcessingRef = useRef(null);
   const materialManagerRef = useRef(null);
   const overlaysRef = useRef(null);
   const lightingRigRef = useRef(null);
@@ -56,23 +139,11 @@ function MonolithScene() {
     background: null,
     environmentTarget: null,
   });
-  const stateRef = useRef({
-    whiteMode: false,
-    hueCycleEnabled: false,
-    hueCycleBaseHue: 0,
-    hueCycleSavedEnabled: false,
-    hueCycleSavedHue: 0,
-    hueCycleSavedSaturation: 0,
-    hueCycleStartTime: 0,
-    xrayMode: false,
-    restoreChromaticAberrationAfterXray: false,
-    currentSetIndex: 2,
-    currentModelIndex: -1,
-    lightingMode: LIGHTING_MODE_SCENE,
-    currentFx: FX_NONE,
-    pendingLightingMode: null,
-    firstLoad: true,
-  });
+  const stateRef = useRef(createInitialMonolithState());
+  const glitchTriggerTokenRef = useRef(0);
+  const [effectSnapshot, setEffectSnapshot] = useState(() => (
+    createMonolithEffectSnapshot(guiParamsRef.current, stateRef.current, glitchTriggerTokenRef.current)
+  ));
 
   const currentSetDef = () => SET_DEFS[stateRef.current.currentSetIndex];
   const currentModels = () => currentSetDef().models;
@@ -94,14 +165,17 @@ function MonolithScene() {
     gl.domElement.style.opacity = '1';
   };
 
-  const refreshPostProcessingPasses = () => {
-    postProcessingRef.current?.refreshPostProcessingPasses(stateRef.current.currentFx);
-  };
+  const syncEffectSnapshot = ({ triggerGlitch = false } = {}) => {
+    if (triggerGlitch && canTriggerMonolithGlitch(stateRef.current)) {
+      glitchTriggerTokenRef.current += 1;
+    }
 
-  const setHueSaturationUniforms = () => {
-    postProcessingRef.current?.setHueSaturation(
-      guiParamsRef.current.hue,
-      guiParamsRef.current.saturation,
+    setEffectSnapshot(
+      createMonolithEffectSnapshot(
+        guiParamsRef.current,
+        stateRef.current,
+        glitchTriggerTokenRef.current,
+      ),
     );
   };
 
@@ -154,9 +228,7 @@ function MonolithScene() {
     stateRef.current.restoreChromaticAberrationAfterXray = nextState.restoreChromaticAfterXray;
     stateRef.current.xrayMode = nextState.xrayMode;
 
-    if (chromaticChanged) {
-      refreshPostProcessingPasses();
-    }
+    if (chromaticChanged) syncEffectSnapshot();
 
     if (chromaticChanged || xrayChanged) {
       guiControlsRef.current?.syncGuiDisplay();
@@ -167,14 +239,10 @@ function MonolithScene() {
     }
   };
 
-  const switchFx = (mode) => {
-    stateRef.current.currentFx = mode;
-    refreshPostProcessingPasses();
-    guiControlsRef.current?.syncGuiDisplay();
-  };
-
   const toggleFx = (mode) => {
-    switchFx(stateRef.current.currentFx === mode ? FX_NONE : mode);
+    stateRef.current.currentFx = toggleSharedFxMode(stateRef.current.currentFx, mode);
+    syncEffectSnapshot();
+    guiControlsRef.current?.syncGuiDisplay();
   };
 
   const refreshDisplayedModelMaterials = () => {
@@ -186,14 +254,6 @@ function MonolithScene() {
       stateRef.current.currentModelIndex,
       stateRef.current.xrayMode,
     );
-  };
-
-  const assignModelPostProcessingLayer = (model) => {
-    const postProcessing = postProcessingRef.current;
-    if (!postProcessing) return;
-    model.traverse((child) => {
-      child.layers.enable(postProcessing.modelLayer);
-    });
   };
 
   const swapModel = (model, name, animations) => {
@@ -217,7 +277,7 @@ function MonolithScene() {
   const loadModel = (index) => {
     if (!loaderRef.current || index === stateRef.current.currentModelIndex) return;
     stateRef.current.currentModelIndex = index;
-    postProcessingRef.current?.triggerGlitch();
+    syncEffectSnapshot({ triggerGlitch: true });
     gl.domElement.style.opacity = '0';
     overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, -1);
 
@@ -255,7 +315,6 @@ function MonolithScene() {
         const model = gltf.scene;
         const animations = gltf.animations;
 
-        assignModelPostProcessingLayer(model);
         materialManagerRef.current?.normalizeModelTransform(model, def, index);
         materialManagerRef.current?.applyModelTextureFiltering(model);
         materialManagerRef.current?.applyModelMaterials(
@@ -354,24 +413,20 @@ function MonolithScene() {
     guiParamsRef.current.hue = nextState.hue;
     guiParamsRef.current.saturation = nextState.saturation;
 
-    postProcessingRef.current?.setForcedHueSaturationEnabled(nextState.hueCycleEnabled);
-    refreshPostProcessingPasses();
-    setHueSaturationUniforms();
+    syncEffectSnapshot();
     guiControlsRef.current?.syncGuiDisplay();
   };
 
   const togglePixelMosaic = () => {
-    const pp = postProcessingRef.current;
-    if (!pp) return;
-    pp.setPixelMosaicEnabled(!pp.getPixelMosaicEnabled());
-    refreshPostProcessingPasses();
+    stateRef.current.pixelMosaicEnabled = !stateRef.current.pixelMosaicEnabled;
+    syncEffectSnapshot();
+    guiControlsRef.current?.syncGuiDisplay();
   };
 
   const toggleThermalVision = () => {
-    const pp = postProcessingRef.current;
-    if (!pp) return;
-    pp.setThermalVisionEnabled(!pp.getThermalVisionEnabled());
-    refreshPostProcessingPasses();
+    stateRef.current.thermalVisionEnabled = !stateRef.current.thermalVisionEnabled;
+    syncEffectSnapshot();
+    guiControlsRef.current?.syncGuiDisplay();
   };
 
   const switchSet = (index) => {
@@ -397,7 +452,6 @@ function MonolithScene() {
     camera.far = 100;
     camera.position.set(0, 2.5, 14);
     camera.updateProjectionMatrix();
-    camera.layers.enable(1);
 
     gl.setPixelRatio(window.devicePixelRatio);
     gl.toneMapping = THREE.ACESFilmicToneMapping;
@@ -413,20 +467,8 @@ function MonolithScene() {
     controls.update();
     controlsRef.current = controls;
 
-    const postProcessing = createPostProcessing({
-      renderer: gl,
-      scene,
-      camera,
-      getElapsedTime: () => clockRef.current.getElapsedTime(),
-      getGuiParams: () => guiParamsRef.current,
-      getMonolith: () => monolithRef.current,
-    });
-    postProcessingRef.current = postProcessing;
-    postProcessing.setHueSaturation(guiParamsRef.current.hue, guiParamsRef.current.saturation);
-
     materialManagerRef.current = createMaterialManager(gl);
 
-    monolithRef.current.layers.enable(postProcessing.modelLayer);
     scene.add(monolithRef.current);
 
     overlaysRef.current = createOverlays(scene);
@@ -452,11 +494,17 @@ function MonolithScene() {
       guiParams: guiParamsRef.current,
       renderer: gl,
       scene,
-      postProcessing,
       onWhiteModeChange: setWhiteMode,
       onLightingModeChange: switchLightingMode,
-      onRefreshPostProcessing: refreshPostProcessingPasses,
-      triggerGlitch: postProcessing.triggerGlitch,
+      onChromaticAberrationChange: (enabled) => {
+        applyChromaticXrayState(setChromaticAberrationState({
+          chromaticAberrationEnabled: guiParamsRef.current.chromaticAberrationEnabled,
+          restoreChromaticAfterXray: stateRef.current.restoreChromaticAberrationAfterXray,
+          xrayMode: stateRef.current.xrayMode,
+        }, enabled));
+      },
+      onEffectSettingsChange: syncEffectSnapshot,
+      onTriggerGlitch: () => syncEffectSnapshot({ triggerGlitch: true }),
     });
 
     const progressContainer = document.createElement('div');
@@ -507,9 +555,9 @@ function MonolithScene() {
     });
 
     const handleSharedEffectHotkey = createSharedEffectHotkeyListener({
-      cinematic: () => toggleFx(FX_CINEMATIC),
+      cinematic: () => toggleFx(SHARED_FX_CINEMATIC),
       chromaticAberration: toggleChromaticAberration,
-      databend: () => toggleFx(FX_DATABEND),
+      databend: () => toggleFx(SHARED_FX_DATABEND),
       hueCycle: toggleHueCycle,
       pixelMosaic: togglePixelMosaic,
       thermalVision: toggleThermalVision,
@@ -537,11 +585,6 @@ function MonolithScene() {
         return;
       }
 
-      if (event.key === '5') {
-        toggleFx(FX_CROSSHATCH);
-        return;
-      }
-
       if (event.key === '6') {
         toggleWhiteMode();
         return;
@@ -560,17 +603,12 @@ function MonolithScene() {
         switchSet(hotkeyMap[event.key]);
         return;
       }
-
-      const index = Number(event.key) - 1;
-      if (!Number.isNaN(index) && index >= 0 && index < currentModels().length) {
-        loadModel(index);
-      }
     };
 
     window.addEventListener('keydown', onKeyDown);
 
     switchSet(stateRef.current.currentSetIndex);
-    refreshPostProcessingPasses();
+    syncEffectSnapshot();
     applySceneAppearance();
 
     return () => {
@@ -580,18 +618,6 @@ function MonolithScene() {
       guiControlsRef.current?.destroy();
       uiRef.current?.destroy();
       overlaysRef.current?.destroy();
-      postProcessing.composer.dispose();
-      postProcessing.bloomPass.dispose();
-      postProcessing.scanlinePass.dispose();
-      postProcessing.hueSatPass.dispose();
-      postProcessing.barrelBlurPass.dispose();
-      postProcessing.chromaticAberrationPass.dispose();
-      postProcessing.glitchPass.dispose();
-      postProcessing.databendPass.dispose();
-      postProcessing.crosshatchPass.dispose();
-      postProcessing.godRayPass.dispose();
-      postProcessing.pixelMosaicPass.dispose();
-      postProcessing.thermalVisionPass.dispose();
       progressContainer.remove();
       scene.remove(monolithRef.current);
       scene.environment = null;
@@ -603,10 +629,6 @@ function MonolithScene() {
       mixerRef.current?.stopAllAction();
     };
   }, [camera, gl, scene]);
-
-  useEffect(() => {
-    postProcessingRef.current?.setSize(size.width, size.height);
-  }, [size]);
 
   useFrame((_, delta) => {
     const elapsed = clockRef.current.getElapsedTime();
@@ -622,7 +644,6 @@ function MonolithScene() {
         elapsed,
       );
       guiParamsRef.current.saturation = 1;
-      setHueSaturationUniforms();
     }
 
     if (stateRef.current.lightingMode === LIGHTING_MODE_SCENE) {
@@ -633,23 +654,12 @@ function MonolithScene() {
       lightingRigRef.current?.updateEnvironmentLighting();
     }
 
-    if (postProcessingRef.current?.getBloomRingActive()) {
+    if (effectSnapshot.cinematicEnabled && effectSnapshot.bloomEnabled) {
       lightingRigRef.current?.animateBloomRing();
     }
+  });
 
-    postProcessingRef.current?.updateGlitch(delta);
-    postProcessingRef.current?.updateAnimatedUniforms(elapsed);
-
-    if (postProcessingRef.current?.hasActivePostProcessing()) {
-      postProcessingRef.current.renderIsolatedModelLayer();
-      postProcessingRef.current.composer.render();
-      return;
-    }
-
-    gl.render(scene, camera);
-  }, 1);
-
-  return null;
+  return <SharedEffectStack {...effectSnapshot} />;
 }
 
 export default function MonolithCanvas() {

@@ -43,11 +43,11 @@ export function createGuiControls({
   guiParams,
   renderer,
   scene,
-  postProcessing,
+  onChromaticAberrationChange,
+  onEffectSettingsChange,
   onWhiteModeChange,
   onLightingModeChange,
-  onRefreshPostProcessing,
-  triggerGlitch,
+  onTriggerGlitch,
 }) {
   const lightingModes = ['A (Scene)', 'B (Particles)', 'C (Shanghai Bund)'];
 
@@ -56,69 +56,39 @@ export function createGuiControls({
   gui.hide();
 
   const bloomFolder = gui.addFolder('Bloom');
-  bloomFolder.add(guiParams, 'bloomEnabled').name('Enabled').onChange(onRefreshPostProcessing);
-  bloomFolder.add(guiParams, 'bloomStrength', 0, 3, 0.01).name('Strength').onChange((value) => {
-    postProcessing.bloomPass.strength = value;
-  });
-  bloomFolder.add(guiParams, 'bloomRadius', 0, 1, 0.01).name('Radius').onChange((value) => {
-    postProcessing.bloomPass.radius = value;
-  });
-  bloomFolder.add(guiParams, 'bloomThreshold', 0, 1, 0.01).name('Threshold').onChange((value) => {
-    postProcessing.bloomPass.threshold = value;
-  });
+  bloomFolder.add(guiParams, 'bloomEnabled').name('Enabled').onChange(onEffectSettingsChange);
+  bloomFolder.add(guiParams, 'bloomStrength', 0, 3, 0.01).name('Strength').onChange(onEffectSettingsChange);
+  bloomFolder.add(guiParams, 'bloomRadius', 0, 1, 0.01).name('Radius').onChange(onEffectSettingsChange);
+  bloomFolder.add(guiParams, 'bloomThreshold', 0, 1, 0.01).name('Threshold').onChange(onEffectSettingsChange);
 
   const barrelBlurFolder = gui.addFolder('Barrel Blur');
-  barrelBlurFolder.add(guiParams, 'barrelBlurEnabled').name('Enabled').onChange(onRefreshPostProcessing);
-  barrelBlurFolder.add(guiParams, 'barrelBlurAmount', 0, 0.5, 0.001).name('Amount').onChange((value) => {
-    postProcessing.barrelBlurPass.uniforms.amount.value = value;
-  });
-  barrelBlurFolder.add(guiParams, 'barrelBlurOffsetX', -0.5, 0.5, 0.001).name('Offset X').onChange((value) => {
-    postProcessing.barrelBlurPass.uniforms.offset.value.x = value;
-  });
-  barrelBlurFolder.add(guiParams, 'barrelBlurOffsetY', -0.5, 0.5, 0.001).name('Offset Y').onChange((value) => {
-    postProcessing.barrelBlurPass.uniforms.offset.value.y = value;
-  });
+  barrelBlurFolder.add(guiParams, 'barrelBlurEnabled').name('Enabled').onChange(onEffectSettingsChange);
+  barrelBlurFolder.add(guiParams, 'barrelBlurAmount', 0, 0.5, 0.001).name('Amount').onChange(onEffectSettingsChange);
+  barrelBlurFolder.add(guiParams, 'barrelBlurOffsetX', -0.5, 0.5, 0.001).name('Offset X').onChange(onEffectSettingsChange);
+  barrelBlurFolder.add(guiParams, 'barrelBlurOffsetY', -0.5, 0.5, 0.001).name('Offset Y').onChange(onEffectSettingsChange);
 
   const chromaticAberrationFolder = gui.addFolder('Chromatic Aberration');
-  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationEnabled').name('Enabled').onChange(onRefreshPostProcessing);
-  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationOffsetX', 0, 0.5, 0.001).name('Offset X').onChange((value) => {
-    postProcessing.chromaticAberrationPass.uniforms.offset.value.x = value;
-  });
-  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationOffsetY', 0, 0.5, 0.001).name('Offset Y').onChange((value) => {
-    postProcessing.chromaticAberrationPass.uniforms.offset.value.y = value;
-  });
-  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationRadialModulation').name('Radial Modulation').onChange((value) => {
-    postProcessing.chromaticAberrationPass.uniforms.radialModulation.value = value ? 1.0 : 0.0;
-  });
-  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationModulationOffset', 0, 1, 0.001).name('Modulation Offset').onChange((value) => {
-    postProcessing.chromaticAberrationPass.uniforms.modulationOffset.value = value;
-  });
+  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationEnabled').name('Enabled').onChange(onChromaticAberrationChange);
+  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationOffsetX', 0, 0.5, 0.001).name('Offset X').onChange(onEffectSettingsChange);
+  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationOffsetY', 0, 0.5, 0.001).name('Offset Y').onChange(onEffectSettingsChange);
+  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationRadialModulation').name('Radial Modulation').onChange(onEffectSettingsChange);
+  chromaticAberrationFolder.add(guiParams, 'chromaticAberrationModulationOffset', 0, 1, 0.001).name('Modulation Offset').onChange(onEffectSettingsChange);
 
   const hueSatFolder = gui.addFolder('Hue & Saturation');
-  hueSatFolder.add(guiParams, 'hueSatEnabled').name('Enabled').onChange(onRefreshPostProcessing);
-  hueSatFolder.add(guiParams, 'hue', -Math.PI, Math.PI, 0.001).name('Hue').onChange((value) => {
-    postProcessing.hueSatPass.uniforms.hue.value = value;
-  });
-  hueSatFolder.add(guiParams, 'saturation', -1, 1, 0.001).name('Saturation').onChange((value) => {
-    postProcessing.hueSatPass.uniforms.saturation.value = value;
-  });
+  hueSatFolder.add(guiParams, 'hueSatEnabled').name('Enabled').onChange(onEffectSettingsChange);
+  hueSatFolder.add(guiParams, 'hue', -Math.PI, Math.PI, 0.001).name('Hue').onChange(onEffectSettingsChange);
+  hueSatFolder.add(guiParams, 'saturation', -1, 1, 0.001).name('Saturation').onChange(onEffectSettingsChange);
 
   const glitchFolder = gui.addFolder('Glitch');
-  glitchFolder.add(guiParams, 'glitchDuration', 0.1, 2.0, 0.01).name('Duration (s)');
-  glitchFolder.add(guiParams, 'glitchStrength', 0.1, 3.0, 0.01).name('Strength');
-  glitchFolder.add({ trigger: () => triggerGlitch() }, 'trigger').name('⚡ Test Glitch');
+  glitchFolder.add(guiParams, 'glitchDuration', 0.1, 2.0, 0.01).name('Duration (s)').onChange(onEffectSettingsChange);
+  glitchFolder.add(guiParams, 'glitchStrength', 0.1, 3.0, 0.01).name('Strength').onChange(onEffectSettingsChange);
+  glitchFolder.add({ trigger: () => onTriggerGlitch() }, 'trigger').name('⚡ Test Glitch');
 
   const scanlineFolder = gui.addFolder('Scanline');
-  scanlineFolder.add(guiParams, 'scanlineEnabled').name('Enabled').onChange(onRefreshPostProcessing);
-  scanlineFolder.add(guiParams, 'scanlineDensity', 0.1, 10, 0.01).name('Density').onChange((value) => {
-    postProcessing.scanlinePass.uniforms.density.value = value;
-  });
-  scanlineFolder.add(guiParams, 'scanlineOpacity', 0, 1, 0.01).name('Opacity').onChange((value) => {
-    postProcessing.scanlinePass.uniforms.opacity.value = value;
-  });
-  scanlineFolder.add(guiParams, 'scanlineScrollSpeed', 0, 2, 0.01).name('Scroll Speed').onChange((value) => {
-    postProcessing.scanlinePass.uniforms.scrollSpeed.value = value;
-  });
+  scanlineFolder.add(guiParams, 'scanlineEnabled').name('Enabled').onChange(onEffectSettingsChange);
+  scanlineFolder.add(guiParams, 'scanlineDensity', 0.1, 10, 0.01).name('Density').onChange(onEffectSettingsChange);
+  scanlineFolder.add(guiParams, 'scanlineOpacity', 0, 1, 0.01).name('Opacity').onChange(onEffectSettingsChange);
+  scanlineFolder.add(guiParams, 'scanlineScrollSpeed', 0, 2, 0.01).name('Scroll Speed').onChange(onEffectSettingsChange);
 
   const toneFolder = gui.addFolder('Tone Mapping');
   toneFolder.add(guiParams, 'exposure', 0, 3, 0.01).name('Exposure').onChange((value) => {
