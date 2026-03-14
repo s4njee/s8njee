@@ -15,7 +15,7 @@ import {
   createPixelMosaicShader,
   createScanlineShader,
   createThermalVisionShader,
-} from '../../../../src/shared/special-effects/postprocessing-shaders.ts';
+} from '../../../../src/shared/special-effects/index.ts';
 
 export function createPostProcessing({
   renderer,
@@ -25,6 +25,8 @@ export function createPostProcessing({
   getElapsedTime,
   getMonolith,
 }) {
+  // Monolith keeps a custom composer because several effects need isolated
+  // model renders in addition to the main fullscreen pass chain.
   const GOD_RAY_SAMPLES = 80;
   const GOD_RAY_DEFAULT_DECAY = 0.985;
   const GOD_RAY_DEFAULT_DENSITY = 1.2;
@@ -211,6 +213,8 @@ export function createPostProcessing({
   }
 
   function renderIsolatedModelLayer() {
+    // Crosshatch and god rays need a separate render of the monolith layer so
+    // the fullscreen pass can combine it with the main scene output.
     const needsCrosshatch = crosshatchPass.enabled;
     const needsGodRays = godRayPass.enabled;
     if (!needsCrosshatch && !needsGodRays) return;

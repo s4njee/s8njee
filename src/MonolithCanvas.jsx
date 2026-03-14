@@ -20,7 +20,7 @@ import {
   toggleChromaticAberrationState,
   toggleHueCycleState,
   toggleXrayModeState,
-} from '../../../src/shared/special-effects/shared-special-effects.ts';
+} from '../../../src/shared/special-effects/index.ts';
 
 const FX_NONE = 0;
 const FX_CINEMATIC = 1;
