@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import GUI from 'lil-gui';
 
 export function createDefaultGuiParams() {
+  const lightingModes = ['A (Scene)', 'B (Particles)', 'C (Shanghai Bund)'];
+
   return {
     showGUI: false,
     bloomEnabled: true,
@@ -33,7 +35,7 @@ export function createDefaultGuiParams() {
     ambientColor: '#ffffff',
     backgroundColor: '#111111',
     whiteMode: false,
-    lightingMode: 'A (Scene)',
+    lightingMode: lightingModes[0],
   };
 }
 
@@ -47,6 +49,7 @@ export function createGuiControls({
   onRefreshPostProcessing,
   triggerGlitch,
 }) {
+  const lightingModes = ['A (Scene)', 'B (Particles)', 'C (Shanghai Bund)'];
 
   const gui = new GUI({ title: '⚙ Settings' });
   gui.domElement.style.zIndex = '200';
@@ -147,8 +150,8 @@ export function createGuiControls({
   sceneFolder.add(guiParams, 'whiteMode').name('White Mode').onChange((value) => {
     onWhiteModeChange(value);
   });
-  sceneFolder.add(guiParams, 'lightingMode', ['A (Scene)', 'B (Particles)']).name('Lighting Mode').onChange((value) => {
-    onLightingModeChange(value === 'A (Scene)' ? 0 : 1);
+  sceneFolder.add(guiParams, 'lightingMode', lightingModes).name('Lighting Mode').onChange((value) => {
+    onLightingModeChange(Math.max(lightingModes.indexOf(value), 0));
   });
 
   let guiVisible = false;

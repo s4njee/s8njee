@@ -153,8 +153,8 @@ export function createOverlays(scene) {
     );
     if (csmLogoMesh.visible) fateLogoMesh.visible = false;
 
-    const isEva01 = currentSetIndex === 2 && modelIndex === 0;
-    const isEva02 = currentSetIndex === 2 && modelIndex === 1;
+    const isEva01 = currentSetIndex === 2 && (modelIndex === 0 || modelIndex === 3);
+    const isEva02 = currentSetIndex === 2 && (modelIndex === 1 || modelIndex === 4);
 
     evaTitle.visible = isEva01;
     evaSubtitle.visible = isEva01;

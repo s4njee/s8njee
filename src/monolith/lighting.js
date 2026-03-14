@@ -400,6 +400,26 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     applyAmbientOverrides();
   }
 
+  function updateEnvironmentLighting() {
+    const monolith = getMonolith();
+
+    resetAllLights();
+    clearParticleGlow();
+    ambient.color.set(0xffffff);
+    ambient.intensity = 0.75;
+    setHeroSpotlightTarget(monolith);
+    heroSpotLight.color.set(0xfff2d6);
+    heroSpotLight.intensity = 1.8;
+    warmLight.color.set(0xffc08f);
+    warmLight.position.set(-4, 4, 6);
+    warmLight.intensity = 0.45;
+    coolLight.color.set(0x89b8ff);
+    coolLight.position.set(4, 3, -4);
+    coolLight.intensity = 0.3;
+
+    applyAmbientOverrides();
+  }
+
   function animateBloomRing() {
     const nowMs = Date.now();
     animateDirectionalRingPair({ nowMs, intensityScale: 1.5 });
@@ -420,6 +440,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     animateBloomRing,
     clearParticleGlow,
     particles,
+    updateEnvironmentLighting,
     updateParticleLighting,
     updateSceneLighting,
   };

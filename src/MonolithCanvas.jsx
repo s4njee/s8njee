@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 import { createGuiControls, createDefaultGuiParams } from './monolith/gui.js';
 import { createLightingRig } from './monolith/lighting.js';
@@ -13,11 +14,27 @@ import { createPostProcessing } from './monolith/postprocessing.js';
 import { SET_DEFS } from './monolith/set-defs.js';
 import { createUI } from './monolith/ui.js';
 import { resolveAssetUrl } from './monolith/asset-url.js';
+import {
+  createSharedEffectHotkeyListener,
+  getHueCycleHue,
+  toggleChromaticAberrationState,
+  toggleHueCycleState,
+  toggleXrayModeState,
+} from '../../../src/shared/special-effects/shared-special-effects.ts';
 
 const FX_NONE = 0;
 const FX_CINEMATIC = 1;
 const FX_DATABEND = 2;
 const FX_CROSSHATCH = 3;
+const LIGHTING_MODE_SCENE = 0;
+const LIGHTING_MODE_PARTICLES = 1;
+const LIGHTING_MODE_SHANGHAI_BUND = 2;
+const LIGHTING_MODE_LABELS = [
+  'A (Scene)',
+  'B (Particles)',
+  'C (Shanghai Bund)',
+];
+const SHANGHAI_BUND_HDR_PATH = '/hdri/shanghai_bund_2k.hdr';
 
 function MonolithScene() {
   const { gl, scene, camera, size } = useThree();
@@ -35,13 +52,23 @@ function MonolithScene() {
   const modelCacheRef = useRef(new Map());
   const mixerRef = useRef(null);
   const monolithRef = useRef(new THREE.Group());
+  const hdriRef = useRef({
+    background: null,
+    environmentTarget: null,
+  });
   const stateRef = useRef({
     whiteMode: false,
+    hueCycleEnabled: false,
+    hueCycleBaseHue: 0,
+    hueCycleSavedEnabled: false,
+    hueCycleSavedHue: 0,
+    hueCycleSavedSaturation: 0,
+    hueCycleStartTime: 0,
     xrayMode: false,
     restoreChromaticAberrationAfterXray: false,
     currentSetIndex: 2,
     currentModelIndex: -1,
-    lightingMode: 0,
+    lightingMode: LIGHTING_MODE_SCENE,
     currentFx: FX_NONE,
     pendingLightingMode: null,
     firstLoad: true,
@@ -49,6 +76,15 @@ function MonolithScene() {
 
   const currentSetDef = () => SET_DEFS[stateRef.current.currentSetIndex];
   const currentModels = () => currentSetDef().models;
+  const getLightingModeLabel = (mode) => LIGHTING_MODE_LABELS[mode] ?? LIGHTING_MODE_LABELS[0];
+  const getEffectiveWhiteMode = () => (
+    stateRef.current.whiteMode && stateRef.current.lightingMode !== LIGHTING_MODE_SHANGHAI_BUND
+  );
+  const isShanghaiBundModeReady = () => (
+    stateRef.current.lightingMode === LIGHTING_MODE_SHANGHAI_BUND
+    && Boolean(hdriRef.current.background)
+    && Boolean(hdriRef.current.environmentTarget)
+  );
 
   const revealScene = () => {
     if (stateRef.current.pendingLightingMode !== null) {
@@ -62,20 +98,73 @@ function MonolithScene() {
     postProcessingRef.current?.refreshPostProcessingPasses(stateRef.current.currentFx);
   };
 
-  const applyWhiteMode = () => {
-    const whiteMode = stateRef.current.whiteMode;
-    document.body.style.background = whiteMode ? 'white' : '#111111';
-    scene.background = currentSetDef().nullBackground
-      ? null
-      : new THREE.Color(whiteMode ? 0xffffff : 0x111111);
-    overlaysRef.current?.applyWhiteMode(whiteMode);
+  const setHueSaturationUniforms = () => {
+    postProcessingRef.current?.setHueSaturation(
+      guiParamsRef.current.hue,
+      guiParamsRef.current.saturation,
+    );
+  };
+
+  const markDisplayedModelMaterialsDirty = () => {
+    monolithRef.current.traverse((child) => {
+      if (!child.isMesh || !child.material) return;
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach((material) => {
+        material.needsUpdate = true;
+      });
+    });
+  };
+
+  const applySceneAppearance = () => {
+    const effectiveWhiteMode = getEffectiveWhiteMode();
+    const shanghaiBundModeReady = isShanghaiBundModeReady();
+
+    document.body.style.background = shanghaiBundModeReady
+      ? '#06080d'
+      : effectiveWhiteMode ? 'white' : '#111111';
+    scene.environment = shanghaiBundModeReady
+      ? hdriRef.current.environmentTarget.texture
+      : null;
+    scene.background = shanghaiBundModeReady
+      ? hdriRef.current.background
+      : currentSetDef().nullBackground
+        ? null
+        : new THREE.Color(effectiveWhiteMode ? 0xffffff : 0x111111);
+    overlaysRef.current?.applyWhiteMode(effectiveWhiteMode);
+    overlaysRef.current?.setStarWarsLogoVisible(
+      Boolean(currentSetDef().nullBackground)
+      && stateRef.current.lightingMode !== LIGHTING_MODE_SHANGHAI_BUND,
+    );
     uiRef.current?.applyWhiteMode();
   };
 
   const setWhiteMode = (value) => {
     stateRef.current.whiteMode = value;
     guiParamsRef.current.whiteMode = value;
-    applyWhiteMode();
+    applySceneAppearance();
+  };
+
+  const applyChromaticXrayState = (nextState) => {
+    const chromaticChanged = (
+      guiParamsRef.current.chromaticAberrationEnabled !== nextState.chromaticAberrationEnabled
+    );
+    const xrayChanged = stateRef.current.xrayMode !== nextState.xrayMode;
+
+    guiParamsRef.current.chromaticAberrationEnabled = nextState.chromaticAberrationEnabled;
+    stateRef.current.restoreChromaticAberrationAfterXray = nextState.restoreChromaticAfterXray;
+    stateRef.current.xrayMode = nextState.xrayMode;
+
+    if (chromaticChanged) {
+      refreshPostProcessingPasses();
+    }
+
+    if (chromaticChanged || xrayChanged) {
+      guiControlsRef.current?.syncGuiDisplay();
+    }
+
+    if (xrayChanged) {
+      refreshDisplayedModelMaterials();
+    }
   };
 
   const switchFx = (mode) => {
@@ -210,10 +299,12 @@ function MonolithScene() {
   const switchLightingMode = (mode) => {
     stateRef.current.lightingMode = mode;
     if (lightingRigRef.current) {
-      lightingRigRef.current.particles.visible = mode === 1;
-      if (mode === 0) lightingRigRef.current.clearParticleGlow();
+      lightingRigRef.current.particles.visible = mode === LIGHTING_MODE_PARTICLES;
+      if (mode !== LIGHTING_MODE_PARTICLES) lightingRigRef.current.clearParticleGlow();
     }
-    guiParamsRef.current.lightingMode = mode === 0 ? 'A (Scene)' : 'B (Particles)';
+    guiParamsRef.current.lightingMode = getLightingModeLabel(mode);
+    applySceneAppearance();
+    markDisplayedModelMaterialsDirty();
     guiControlsRef.current?.syncGuiDisplay();
     uiRef.current?.updateModeButtons();
   };
@@ -224,27 +315,63 @@ function MonolithScene() {
   };
 
   const toggleChromaticAberration = () => {
-    guiParamsRef.current.chromaticAberrationEnabled = !guiParamsRef.current.chromaticAberrationEnabled;
-    refreshPostProcessingPasses();
-    guiControlsRef.current?.syncGuiDisplay();
+    applyChromaticXrayState(toggleChromaticAberrationState({
+      chromaticAberrationEnabled: guiParamsRef.current.chromaticAberrationEnabled,
+      restoreChromaticAfterXray: stateRef.current.restoreChromaticAberrationAfterXray,
+      xrayMode: stateRef.current.xrayMode,
+    }));
   };
 
   const toggleXrayMode = () => {
-    stateRef.current.xrayMode = !stateRef.current.xrayMode;
-    if (stateRef.current.xrayMode) {
-      stateRef.current.restoreChromaticAberrationAfterXray = guiParamsRef.current.chromaticAberrationEnabled;
-      if (guiParamsRef.current.chromaticAberrationEnabled) {
-        guiParamsRef.current.chromaticAberrationEnabled = false;
-        refreshPostProcessingPasses();
-        guiControlsRef.current?.syncGuiDisplay();
-      }
-    } else if (stateRef.current.restoreChromaticAberrationAfterXray) {
-      guiParamsRef.current.chromaticAberrationEnabled = true;
-      stateRef.current.restoreChromaticAberrationAfterXray = false;
-      refreshPostProcessingPasses();
-      guiControlsRef.current?.syncGuiDisplay();
-    }
-    refreshDisplayedModelMaterials();
+    applyChromaticXrayState(toggleXrayModeState({
+      chromaticAberrationEnabled: guiParamsRef.current.chromaticAberrationEnabled,
+      restoreChromaticAfterXray: stateRef.current.restoreChromaticAberrationAfterXray,
+      xrayMode: stateRef.current.xrayMode,
+    }));
+  };
+
+  const toggleHueCycle = () => {
+    const nextState = toggleHueCycleState({
+      hue: guiParamsRef.current.hue,
+      hueCycleBaseHue: stateRef.current.hueCycleBaseHue,
+      hueCycleEnabled: stateRef.current.hueCycleEnabled,
+      hueCycleSavedEnabled: stateRef.current.hueCycleSavedEnabled,
+      hueCycleSavedHue: stateRef.current.hueCycleSavedHue,
+      hueCycleSavedSaturation: stateRef.current.hueCycleSavedSaturation,
+      hueCycleStartTime: stateRef.current.hueCycleStartTime,
+      hueSatEnabled: guiParamsRef.current.hueSatEnabled,
+      saturation: guiParamsRef.current.saturation,
+    }, clockRef.current.getElapsedTime());
+
+    stateRef.current.hueCycleEnabled = nextState.hueCycleEnabled;
+    stateRef.current.hueCycleSavedEnabled = nextState.hueCycleSavedEnabled;
+    stateRef.current.hueCycleSavedHue = nextState.hueCycleSavedHue;
+    stateRef.current.hueCycleSavedSaturation = nextState.hueCycleSavedSaturation;
+    stateRef.current.hueCycleBaseHue = nextState.hueCycleBaseHue;
+    stateRef.current.hueCycleStartTime = nextState.hueCycleStartTime;
+
+    guiParamsRef.current.hueSatEnabled = nextState.hueSatEnabled;
+    guiParamsRef.current.hue = nextState.hue;
+    guiParamsRef.current.saturation = nextState.saturation;
+
+    postProcessingRef.current?.setForcedHueSaturationEnabled(nextState.hueCycleEnabled);
+    refreshPostProcessingPasses();
+    setHueSaturationUniforms();
+    guiControlsRef.current?.syncGuiDisplay();
+  };
+
+  const togglePixelMosaic = () => {
+    const pp = postProcessingRef.current;
+    if (!pp) return;
+    pp.setPixelMosaicEnabled(!pp.getPixelMosaicEnabled());
+    refreshPostProcessingPasses();
+  };
+
+  const toggleThermalVision = () => {
+    const pp = postProcessingRef.current;
+    if (!pp) return;
+    pp.setThermalVisionEnabled(!pp.getThermalVisionEnabled());
+    refreshPostProcessingPasses();
   };
 
   const switchSet = (index) => {
@@ -254,11 +381,9 @@ function MonolithScene() {
     const def = currentSetDef();
     overlaysRef.current?.hideAllOverlays();
     overlaysRef.current?.setStarWarsLogoVisible(Boolean(def.nullBackground));
-    scene.background = def.nullBackground
-      ? null
-      : new THREE.Color(stateRef.current.whiteMode ? 0xffffff : 0x111111);
+    applySceneAppearance();
 
-    stateRef.current.pendingLightingMode = def.defaultLighting ?? 0;
+    stateRef.current.pendingLightingMode = def.defaultLighting ?? LIGHTING_MODE_SCENE;
     uiRef.current?.updateSetButtons();
     loadModel(def.defaultModel ?? 0);
   };
@@ -294,8 +419,10 @@ function MonolithScene() {
       camera,
       getElapsedTime: () => clockRef.current.getElapsedTime(),
       getGuiParams: () => guiParamsRef.current,
+      getMonolith: () => monolithRef.current,
     });
     postProcessingRef.current = postProcessing;
+    postProcessing.setHueSaturation(guiParamsRef.current.hue, guiParamsRef.current.saturation);
 
     materialManagerRef.current = createMaterialManager(gl);
 
@@ -314,7 +441,7 @@ function MonolithScene() {
 
     uiRef.current = createUI({
       setDefs: SET_DEFS,
-      getWhiteMode: () => stateRef.current.whiteMode,
+      getWhiteMode: getEffectiveWhiteMode,
       getCurrentSetIndex: () => stateRef.current.currentSetIndex,
       getLightingMode: () => stateRef.current.lightingMode,
       onSwitchLightingMode: switchLightingMode,
@@ -351,24 +478,43 @@ function MonolithScene() {
     loaderRef.current = new GLTFLoader();
     loaderRef.current.setDRACOLoader(dracoLoader);
 
+    let disposed = false;
+    const pmremGenerator = new THREE.PMREMGenerator(gl);
+    pmremGenerator.compileEquirectangularShader();
+    const hdriLoader = new RGBELoader();
+    hdriLoader.load(
+      resolveAssetUrl(SHANGHAI_BUND_HDR_PATH),
+      (texture) => {
+        if (disposed) {
+          texture.dispose();
+          return;
+        }
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        const environmentTarget = pmremGenerator.fromEquirectangular(texture);
+        hdriRef.current = { background: texture, environmentTarget };
+        applySceneAppearance();
+        markDisplayedModelMaterialsDirty();
+      },
+      undefined,
+      (error) => {
+        console.error('Failed to load Shanghai Bund HDRI', error);
+      },
+    );
+
     const hotkeyMap = {};
     SET_DEFS.forEach((def, index) => {
       if (def.hotkey) hotkeyMap[def.hotkey] = index;
     });
 
-    const keyHandlers = {
-      '4': () => toggleFx(FX_CINEMATIC),
-      '5': () => toggleFx(FX_CROSSHATCH),
-      '6': toggleWhiteMode,
-      z: () => toggleFx(FX_DATABEND),
-      Z: () => toggleFx(FX_DATABEND),
-      g: () => guiControlsRef.current?.toggleGUI(),
-      G: () => guiControlsRef.current?.toggleGUI(),
-      c: toggleChromaticAberration,
-      C: toggleChromaticAberration,
-      x: toggleXrayMode,
-      X: toggleXrayMode,
-    };
+    const handleSharedEffectHotkey = createSharedEffectHotkeyListener({
+      cinematic: () => toggleFx(FX_CINEMATIC),
+      chromaticAberration: toggleChromaticAberration,
+      databend: () => toggleFx(FX_DATABEND),
+      hueCycle: toggleHueCycle,
+      pixelMosaic: togglePixelMosaic,
+      thermalVision: toggleThermalVision,
+      xrayMode: toggleXrayMode,
+    });
 
     const onKeyDown = (event) => {
       if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
@@ -391,8 +537,22 @@ function MonolithScene() {
         return;
       }
 
-      if (keyHandlers[event.key]) {
-        keyHandlers[event.key]();
+      if (event.key === '5') {
+        toggleFx(FX_CROSSHATCH);
+        return;
+      }
+
+      if (event.key === '6') {
+        toggleWhiteMode();
+        return;
+      }
+
+      if (event.key === 'g' || event.key === 'G') {
+        guiControlsRef.current?.toggleGUI();
+        return;
+      }
+
+      if (handleSharedEffectHotkey(event)) {
         return;
       }
 
@@ -411,9 +571,10 @@ function MonolithScene() {
 
     switchSet(stateRef.current.currentSetIndex);
     refreshPostProcessingPasses();
-    applyWhiteMode();
+    applySceneAppearance();
 
     return () => {
+      disposed = true;
       window.removeEventListener('keydown', onKeyDown);
       controls.dispose();
       guiControlsRef.current?.destroy();
@@ -428,8 +589,16 @@ function MonolithScene() {
       postProcessing.glitchPass.dispose();
       postProcessing.databendPass.dispose();
       postProcessing.crosshatchPass.dispose();
+      postProcessing.godRayPass.dispose();
+      postProcessing.pixelMosaicPass.dispose();
+      postProcessing.thermalVisionPass.dispose();
       progressContainer.remove();
       scene.remove(monolithRef.current);
+      scene.environment = null;
+      scene.background = null;
+      hdriRef.current.environmentTarget?.dispose();
+      hdriRef.current.background?.dispose();
+      pmremGenerator.dispose();
       dracoLoader.dispose();
       mixerRef.current?.stopAllAction();
     };
@@ -446,10 +615,22 @@ function MonolithScene() {
     mixerRef.current?.update(delta);
     materialManagerRef.current?.updateXrayAnimation(elapsed);
 
-    if (stateRef.current.lightingMode === 0) {
+    if (stateRef.current.hueCycleEnabled) {
+      guiParamsRef.current.hue = getHueCycleHue(
+        stateRef.current.hueCycleBaseHue,
+        stateRef.current.hueCycleStartTime,
+        elapsed,
+      );
+      guiParamsRef.current.saturation = 1;
+      setHueSaturationUniforms();
+    }
+
+    if (stateRef.current.lightingMode === LIGHTING_MODE_SCENE) {
       lightingRigRef.current?.updateSceneLighting();
-    } else {
+    } else if (stateRef.current.lightingMode === LIGHTING_MODE_PARTICLES) {
       lightingRigRef.current?.updateParticleLighting();
+    } else {
+      lightingRigRef.current?.updateEnvironmentLighting();
     }
 
     if (postProcessingRef.current?.getBloomRingActive()) {
