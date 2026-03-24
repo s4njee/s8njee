@@ -13,6 +13,7 @@ import { createOverlays } from './monolith/overlays.js';
 import { SET_DEFS } from './monolith/set-defs.js';
 import { createUI } from './monolith/ui.js';
 import { resolveAssetUrl } from './monolith/asset-url.js';
+import { cachedFetch } from './monolith/model-cache.js';
 import {
   SharedEffectStack,
   createSharedEffectHotkeyListener,
@@ -274,6 +275,21 @@ function MonolithScene() {
     uiRef.current?.updateLabel(name);
   };
 
+  /** Displays the red "failed to load" progress bar state. */
+  const showLoadError = (modelName) => {
+    if (progressRef.current) {
+      progressRef.current.container.style.opacity = '1';
+      progressRef.current.bar.style.width = '100%';
+      progressRef.current.bar.style.background = '#ff5c5c';
+      progressRef.current.container.style.width = '320px';
+      const label = progressRef.current.container.firstChild;
+      if (label) {
+        label.textContent = `failed to load ${modelName.toLowerCase()}`;
+        label.style.color = 'rgba(255,92,92,0.9)';
+      }
+    }
+  };
+
   const loadModel = (index) => {
     if (!loaderRef.current || index === stateRef.current.currentModelIndex) return;
     stateRef.current.currentModelIndex = index;
@@ -302,57 +318,66 @@ function MonolithScene() {
       return;
     }
 
-    loaderRef.current.load(
-      resolveAssetUrl(entry.path),
-      (gltf) => {
-        if (stateRef.current.firstLoad && progressRef.current) {
-          stateRef.current.firstLoad = false;
-          progressRef.current.container.style.transition = 'opacity 0.4s';
-          progressRef.current.container.style.opacity = '0';
-          window.setTimeout(() => progressRef.current?.container.remove(), 500);
+    // Fetch the GLB through the persistent Cache API layer, then parse with
+    // GLTFLoader.  Using cachedFetch() + parse() instead of loader.load() lets
+    // us cache the raw binary response across sessions so revisits skip the
+    // network entirely.  DRACO decompression still runs via the DRACOLoader
+    // attached to the GLTFLoader instance.
+    const modelUrl = resolveAssetUrl(entry.path);
+
+    cachedFetch(modelUrl)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} loading ${entry.path}`);
         }
+        return response.arrayBuffer();
+      })
+      .then((buffer) => {
+        loaderRef.current.parse(
+          buffer,
+          // resourcePath — tells the parser where to resolve relative
+          // references (textures, etc.) within the GLB
+          resolveAssetUrl(entry.path.substring(0, entry.path.lastIndexOf('/') + 1)),
+          (gltf) => {
+            if (stateRef.current.firstLoad && progressRef.current) {
+              stateRef.current.firstLoad = false;
+              progressRef.current.container.style.transition = 'opacity 0.4s';
+              progressRef.current.container.style.opacity = '0';
+              window.setTimeout(() => progressRef.current?.container.remove(), 500);
+            }
 
-        const model = gltf.scene;
-        const animations = gltf.animations;
+            const model = gltf.scene;
+            const animations = gltf.animations;
 
-        materialManagerRef.current?.normalizeModelTransform(model, def, index);
-        materialManagerRef.current?.applyModelTextureFiltering(model);
-        materialManagerRef.current?.applyModelMaterials(
-          model,
-          def,
-          stateRef.current.currentSetIndex,
-          index,
-          stateRef.current.xrayMode,
+            materialManagerRef.current?.normalizeModelTransform(model, def, index);
+            materialManagerRef.current?.applyModelTextureFiltering(model);
+            materialManagerRef.current?.applyModelMaterials(
+              model,
+              def,
+              stateRef.current.currentSetIndex,
+              index,
+              stateRef.current.xrayMode,
+            );
+
+            modelCacheRef.current.set(cacheKey, { model, animations });
+            window.setTimeout(() => {
+              swapModel(model, entry.name, animations);
+              overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, index);
+              revealScene();
+            }, 200);
+          },
+          (error) => {
+            console.error('Failed to parse model', entry.path, error);
+            gl.domElement.style.opacity = '1';
+            showLoadError(entry.name);
+          },
         );
-
-        modelCacheRef.current.set(cacheKey, { model, animations });
-        window.setTimeout(() => {
-          swapModel(model, entry.name, animations);
-          overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, index);
-          revealScene();
-        }, 200);
-      },
-      (progress) => {
-        if (stateRef.current.firstLoad && progress.total && progressRef.current) {
-          progressRef.current.bar.style.width = `${Math.round((progress.loaded / progress.total) * 100)}%`;
-        }
-      },
-      (error) => {
+      })
+      .catch((error) => {
         console.error('Failed to load model', entry.path, error);
         gl.domElement.style.opacity = '1';
-        if (progressRef.current) {
-          progressRef.current.container.style.opacity = '1';
-          progressRef.current.bar.style.width = '100%';
-          progressRef.current.bar.style.background = '#ff5c5c';
-          progressRef.current.container.style.width = '320px';
-          const label = progressRef.current.container.firstChild;
-          if (label) {
-            label.textContent = `failed to load ${entry.name.toLowerCase()}`;
-            label.style.color = 'rgba(255,92,92,0.9)';
-          }
-        }
-      },
-    );
+        showLoadError(entry.name);
+      });
   };
 
   const switchLightingMode = (mode) => {
