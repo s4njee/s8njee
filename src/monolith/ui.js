@@ -78,11 +78,10 @@ export function createUI({
   document.body.appendChild(modeNav);
 
   const modeButtons = [];
-  ['A', 'B', 'C'].forEach((labelText, index) => {
+  ['A', 'B'].forEach((labelText, index) => {
     const button = document.createElement('div');
     button.textContent = labelText;
     button.style.cssText = BTN_CSS;
-    if (labelText === 'C') button.style.display = 'none';
     button.addEventListener('click', () => onSwitchLightingMode(index));
     button.addEventListener('mouseenter', () => {
       if (index !== getLightingMode()) styleButton(button, false);

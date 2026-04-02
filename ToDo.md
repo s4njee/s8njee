@@ -1,6 +1,6 @@
 # Monolith Visualization Roadmap
 
-> Last reviewed: 2026-03-23
+> Last reviewed: 2026-03-25
 
 This file tracks the current Monolith implementation, marks what is already in place, and sorts the remaining work by value and implementation cost.
 
@@ -16,7 +16,7 @@ These items are already present in the current Monolith codebase.
 - White mode, x-ray mode, cinematic mode, databend mode, pixel mosaic, thermal vision, and hue cycle are all integrated
 - Material normalization and x-ray shader handling are extracted into `monolith/materials.js`
 - Animated lighting and particle-lighting modes are extracted into `monolith/lighting.js`
-- Three lighting modes are defined: Scene (A), Particles (B), and Shanghai Bund (C) — the Shanghai Bund mode uses an HDR environment map (`/hdri/shanghai_bund_2k.hdr`) for reflections and scene lighting based on the Shanghai waterfront skyline
+- Two lighting modes are defined: Scene (A) and Particles (B)
 - Troika text overlays and logo overlays are extracted into `monolith/overlays.js`
 - GUI controls are extracted into `monolith/gui.js`
 - DOM navigation, labels, and music control are extracted into `monolith/ui.js`
@@ -31,7 +31,7 @@ These areas already have structure, but the original goals are only partly met.
 ### Architecture
 
 - The Monolith logic has been split into helpers:
-  materials, lighting, overlays, GUI, and UI are each extracted into their own module, but `MonolithScene` is still ~540 lines of orchestration logic in a single function component. It manages 20+ refs, multiple effect toggles, model loading with caching, hotkey handling, and HDRI loading.
+  materials, lighting, overlays, GUI, and UI are each extracted into their own module, but `MonolithScene` is still ~500 lines of orchestration logic in a single function component. It manages 20+ refs, multiple effect toggles, model loading with caching, and hotkey handling.
 
   > **📋 TODO (code):** Consider extracting focused custom hooks from `MonolithScene` — e.g., `useModelLoader()`, `useHotkeyHandler()`, `useLightingMode()`. This would reduce the ref count in the main component and make each concern independently testable. This is a long-term item; the current structure works.
 
@@ -64,12 +64,10 @@ These areas already have structure, but the original goals are only partly met.
   - Lookup order: in-memory Map → Cache API → network
 
 - Error handling exists:
-  failed loads surface a red progress bar state with a "failed to load" label (L340–354), but there is no retry button or richer recovery path.
+  failed loads surface a red progress bar state with a "failed to load" label, but there is no retry button or richer recovery path.
 
-- Shanghai Bund HDRI support exists:
-  the HDR environment load is triggered eagerly in the `useEffect` setup (L532–550) rather than lazily on first use of lighting mode C.
-
-  > **📋 TODO (code):** Defer HDRI loading until the user first switches to Shanghai Bund mode (lighting mode C). The `RGBELoader.load()` call can be moved into `switchLightingMode()` with a one-time guard. This saves ~2 MB on initial load for users who never use mode C.
+- ~~Shanghai Bund HDRI mode (lighting mode C)~~ — **REMOVED** (2026-03-25):
+  The HDR environment map (`/hdri/shanghai_bund_2k.hdr`), `RGBELoader`, `PMREMGenerator`, and all Shanghai Bund lighting code have been removed. The visualization now has two lighting modes: Scene (A) and Particles (B).
 
 ## Suggested Next Order
 
@@ -99,7 +97,6 @@ This is the recommended order for the next passes.
 
 - Make overlays fully data-driven from `SET_DEFS` (move text visibility rules out of hardcoded set/model checks)
 - Make `materialOverrides` declarative instead of predicate-based (see TODO note above)
-- Lazy-load the Shanghai Bund HDRI on first use of lighting mode C (see TODO note above)
 - Improve model-load failure UX with retry and clearer recovery
 - Move more UI styling away from inline DOM `cssText` toward a component/style system
 
@@ -145,7 +142,7 @@ These are not from the original list, but they fit the current Monolith architec
 
 ## Notes
 
-- `MonolithCanvas` (L665–675) is the exported component. It is a thin `<Canvas>` + `<Suspense>` wrapper. `MonolithScene` (L123–662) contains all orchestration logic. Both live in `MonolithCanvas.jsx`.
+- `MonolithCanvas` is the exported component. It is a thin `<Canvas>` + `<Suspense>` wrapper. `MonolithScene` contains all orchestration logic. Both live in `MonolithCanvas.jsx`.
 - Monolith already has a good amount of helper extraction; favor incremental cleanup over a full rewrite.
-- Keep `docs/monolith.md` aligned with actual hotkeys and the current imperative UI/HDRI/cache behavior.
+- Keep `docs/monolith.md` aligned with actual hotkeys and the current imperative UI/cache behavior.
 - When adding normal models to existing sets, prefer `SET_DEFS` and mirrored assets over new hardcoding in `MonolithCanvas.jsx`.

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import GUI from 'lil-gui';
 
 export function createDefaultGuiParams() {
-  const lightingModes = ['A (Scene)', 'B (Particles)', 'C (Shanghai Bund)'];
+  const lightingModes = ['A (Scene)', 'B (Particles)'];
 
   return {
     showGUI: false,
@@ -49,7 +49,7 @@ export function createGuiControls({
   onLightingModeChange,
   onTriggerGlitch,
 }) {
-  const lightingModes = ['A (Scene)', 'B (Particles)', 'C (Shanghai Bund)'];
+  const lightingModes = ['A (Scene)', 'B (Particles)'];
 
   const gui = new GUI({ title: '⚙ Settings' });
   gui.domElement.style.zIndex = '200';

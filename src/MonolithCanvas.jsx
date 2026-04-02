@@ -1,10 +1,9 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 import { createGuiControls, createDefaultGuiParams } from './monolith/gui.js';
 import { createLightingRig } from './monolith/lighting.js';
@@ -14,6 +13,7 @@ import { SET_DEFS } from './monolith/set-defs.js';
 import { createUI } from './monolith/ui.js';
 import { resolveAssetUrl } from './monolith/asset-url.js';
 import { cachedFetch } from './monolith/model-cache.js';
+import SafeCanvas from '../../../src/shared/webgl/SafeCanvas.tsx';
 import {
   SharedEffectStack,
   createSharedEffectHotkeyListener,
@@ -30,13 +30,10 @@ import {
 
 const LIGHTING_MODE_SCENE = 0;
 const LIGHTING_MODE_PARTICLES = 1;
-const LIGHTING_MODE_SHANGHAI_BUND = 2;
 const LIGHTING_MODE_LABELS = [
   'A (Scene)',
   'B (Particles)',
-  'C (Shanghai Bund)',
 ];
-const SHANGHAI_BUND_HDR_PATH = '/hdri/shanghai_bund_2k.hdr';
 const CHROMATIC_OSCILLATION_SPEED = 3.2;
 
 function mapMonolithBloomSettings(guiParams) {
@@ -136,10 +133,6 @@ function MonolithScene() {
   const modelCacheRef = useRef(new Map());
   const mixerRef = useRef(null);
   const monolithRef = useRef(new THREE.Group());
-  const hdriRef = useRef({
-    background: null,
-    environmentTarget: null,
-  });
   const stateRef = useRef(createInitialMonolithState());
   const glitchTriggerTokenRef = useRef(0);
   const [effectSnapshot, setEffectSnapshot] = useState(() => (
@@ -149,14 +142,7 @@ function MonolithScene() {
   const currentSetDef = () => SET_DEFS[stateRef.current.currentSetIndex];
   const currentModels = () => currentSetDef().models;
   const getLightingModeLabel = (mode) => LIGHTING_MODE_LABELS[mode] ?? LIGHTING_MODE_LABELS[0];
-  const getEffectiveWhiteMode = () => (
-    stateRef.current.whiteMode && stateRef.current.lightingMode !== LIGHTING_MODE_SHANGHAI_BUND
-  );
-  const isShanghaiBundModeReady = () => (
-    stateRef.current.lightingMode === LIGHTING_MODE_SHANGHAI_BUND
-    && Boolean(hdriRef.current.background)
-    && Boolean(hdriRef.current.environmentTarget)
-  );
+  const getEffectiveWhiteMode = () => stateRef.current.whiteMode;
 
   const revealScene = () => {
     if (stateRef.current.pendingLightingMode !== null) {
@@ -192,24 +178,14 @@ function MonolithScene() {
 
   const applySceneAppearance = () => {
     const effectiveWhiteMode = getEffectiveWhiteMode();
-    const shanghaiBundModeReady = isShanghaiBundModeReady();
 
-    document.body.style.background = shanghaiBundModeReady
-      ? '#06080d'
-      : effectiveWhiteMode ? 'white' : '#111111';
-    scene.environment = shanghaiBundModeReady
-      ? hdriRef.current.environmentTarget.texture
-      : null;
-    scene.background = shanghaiBundModeReady
-      ? hdriRef.current.background
-      : currentSetDef().nullBackground
-        ? null
-        : new THREE.Color(effectiveWhiteMode ? 0xffffff : 0x111111);
+    document.body.style.background = effectiveWhiteMode ? 'white' : '#111111';
+    scene.environment = null;
+    scene.background = currentSetDef().nullBackground
+      ? null
+      : new THREE.Color(effectiveWhiteMode ? 0xffffff : 0x111111);
     overlaysRef.current?.applyWhiteMode(effectiveWhiteMode);
-    overlaysRef.current?.setStarWarsLogoVisible(
-      Boolean(currentSetDef().nullBackground)
-      && stateRef.current.lightingMode !== LIGHTING_MODE_SHANGHAI_BUND,
-    );
+    overlaysRef.current?.setStarWarsLogoVisible(Boolean(currentSetDef().nullBackground));
     uiRef.current?.applyWhiteMode();
   };
 
@@ -551,29 +527,6 @@ function MonolithScene() {
     loaderRef.current = new GLTFLoader();
     loaderRef.current.setDRACOLoader(dracoLoader);
 
-    let disposed = false;
-    const pmremGenerator = new THREE.PMREMGenerator(gl);
-    pmremGenerator.compileEquirectangularShader();
-    const hdriLoader = new RGBELoader();
-    hdriLoader.load(
-      resolveAssetUrl(SHANGHAI_BUND_HDR_PATH),
-      (texture) => {
-        if (disposed) {
-          texture.dispose();
-          return;
-        }
-        texture.mapping = THREE.EquirectangularReflectionMapping;
-        const environmentTarget = pmremGenerator.fromEquirectangular(texture);
-        hdriRef.current = { background: texture, environmentTarget };
-        applySceneAppearance();
-        markDisplayedModelMaterialsDirty();
-      },
-      undefined,
-      (error) => {
-        console.error('Failed to load Shanghai Bund HDRI', error);
-      },
-    );
-
     const hotkeyMap = {};
     SET_DEFS.forEach((def, index) => {
       if (def.hotkey) hotkeyMap[def.hotkey] = index;
@@ -637,7 +590,6 @@ function MonolithScene() {
     applySceneAppearance();
 
     return () => {
-      disposed = true;
       window.removeEventListener('keydown', onKeyDown);
       controls.dispose();
       guiControlsRef.current?.destroy();
@@ -647,9 +599,6 @@ function MonolithScene() {
       scene.remove(monolithRef.current);
       scene.environment = null;
       scene.background = null;
-      hdriRef.current.environmentTarget?.dispose();
-      hdriRef.current.background?.dispose();
-      pmremGenerator.dispose();
       dracoLoader.dispose();
       mixerRef.current?.stopAllAction();
     };
@@ -675,8 +624,6 @@ function MonolithScene() {
       lightingRigRef.current?.updateSceneLighting();
     } else if (stateRef.current.lightingMode === LIGHTING_MODE_PARTICLES) {
       lightingRigRef.current?.updateParticleLighting();
-    } else {
-      lightingRigRef.current?.updateEnvironmentLighting();
     }
 
     if (effectSnapshot.cinematicEnabled && effectSnapshot.bloomEnabled) {
@@ -691,10 +638,14 @@ export default function MonolithCanvas() {
   const dpr = useMemo(() => [1, Math.min(window.devicePixelRatio, 2)], []);
 
   return (
-    <Canvas dpr={dpr} gl={{ antialias: true, alpha: true }}>
+    <SafeCanvas
+      dpr={dpr}
+      rendererOptions={{ antialias: true, alpha: true }}
+      sceneLabel="Monolith"
+    >
       <Suspense fallback={null}>
         <MonolithScene />
       </Suspense>
-    </Canvas>
+    </SafeCanvas>
   );
 }
