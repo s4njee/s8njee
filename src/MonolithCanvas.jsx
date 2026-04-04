@@ -307,12 +307,86 @@ function MonolithScene() {
     }
   };
 
+  const resetLoadProgress = () => {
+    if (!progressRef.current) return;
+
+    progressRef.current.container.style.opacity = '1';
+    progressRef.current.container.style.width = '200px';
+    progressRef.current.bar.style.width = '0%';
+    progressRef.current.bar.style.background = '#fff';
+
+    const label = progressRef.current.container.firstChild;
+    if (label) {
+      label.textContent = 'loading';
+      label.style.color = 'rgba(255,255,255,0.5)';
+    }
+  };
+
+  const updateLoadProgress = (loadedBytes, totalBytes) => {
+    if (!progressRef.current || !stateRef.current.firstLoad) return;
+
+    if (totalBytes && totalBytes > 0) {
+      progressRef.current.bar.style.width = `${Math.round((loadedBytes / totalBytes) * 100)}%`;
+      return;
+    }
+
+    // Some cached/proxied responses do not expose Content-Length. In that case,
+    // still show visible progress instead of leaving the bar at 0%.
+    const fallbackProgress = Math.min(90, 8 + Math.sqrt(loadedBytes / 65536) * 18);
+    progressRef.current.bar.style.width = `${fallbackProgress}%`;
+  };
+
+  const readModelArrayBuffer = async (response) => {
+    if (!stateRef.current.firstLoad) {
+      return response.arrayBuffer();
+    }
+
+    const totalBytes = Number.parseInt(response.headers.get('content-length') ?? '', 10);
+
+    if (!response.body || !Number.isFinite(totalBytes)) {
+      const buffer = await response.arrayBuffer();
+      updateLoadProgress(buffer.byteLength, Number.isFinite(totalBytes) ? totalBytes : 0);
+      return buffer;
+    }
+
+    const reader = response.body.getReader();
+    const chunks = [];
+    let loadedBytes = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      chunks.push(value);
+      loadedBytes += value.byteLength;
+      updateLoadProgress(loadedBytes, totalBytes);
+    }
+
+    const buffer = new Uint8Array(loadedBytes);
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      buffer.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    updateLoadProgress(loadedBytes, totalBytes);
+    return buffer.buffer;
+  };
+
   const loadModel = (index) => {
     if (!loaderRef.current || index === stateRef.current.currentModelIndex) return;
     stateRef.current.currentModelIndex = index;
     syncEffectSnapshot({ triggerGlitch: true });
     gl.domElement.style.opacity = '0';
     overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, -1);
+
+    if (stateRef.current.firstLoad) {
+      resetLoadProgress();
+    }
 
     const entry = currentModels()[index];
     const def = currentSetDef();
@@ -349,7 +423,7 @@ function MonolithScene() {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status} loading ${entry.path}`);
         }
-        return response.arrayBuffer();
+        return readModelArrayBuffer(response);
       })
       .then((buffer) => {
         loaderRef.current.parse(
