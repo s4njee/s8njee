@@ -115,6 +115,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
   scene.add(heroSpotLight.target);
 
   let lightFrame = 0;
+  let cinematicAmbientIntensity = null;
   const tempColor = new THREE.Color();
   let lastStaticSceneSignature = null;
 
@@ -160,6 +161,11 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     }
 
     return `${guiParams.ambientColor}:${guiParams.ambientIntensity}`;
+  }
+
+  function applyCinematicAmbientOverride() {
+    if (cinematicAmbientIntensity === null) return;
+    ambient.intensity = cinematicAmbientIntensity;
   }
 
   function getPulse(progress) {
@@ -440,6 +446,8 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
       const nearestParticles = collectNearestParticlesToMonolith(positions, monolith.position);
       updateParticleGlowLights({ baseHue, hueType, nearestParticles });
     }
+
+    applyCinematicAmbientOverride();
     lightFrame++;
   }
 
@@ -474,6 +482,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     heroSpotLight.intensity = config.heroSpotlightIntensity;
 
     applyAmbientOverrides();
+    applyCinematicAmbientOverride();
   }
 
   function animateBloomRing() {
@@ -496,6 +505,9 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     animateBloomRing,
     clearParticleGlow,
     particles,
+    setCinematicAmbientIntensity: (intensity) => {
+      cinematicAmbientIntensity = intensity;
+    },
     updateParticleLighting,
     updateSceneLighting,
   };

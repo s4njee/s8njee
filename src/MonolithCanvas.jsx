@@ -35,8 +35,13 @@ const LIGHTING_MODE_LABELS = [
   'B (Particles)',
 ];
 const CHROMATIC_OSCILLATION_SPEED = 3.2;
-const MONOLITH_SET3_INDEX = 2;
-const MONOLITH_SET3_SPEED_MULTIPLIER = 1.4;
+const CINEMATIC_AMBIENT_INTENSITY_START = 1;
+const CINEMATIC_AMBIENT_INTENSITY_END = 3.2;
+const CINEMATIC_BLOOM_INTENSITY_START = 0.2;
+const CINEMATIC_BLOOM_INTENSITY_END = 1.2;
+const CINEMATIC_BLOOM_OSCILLATION_SPEED = 2.4;
+const SET3_INDEX = 2;
+const SET3_SPACEBAR_ANIMATION_SPEED = 1.5;
 
 function mapMonolithBloomSettings(guiParams) {
   // Monolith's legacy sliders were tuned for UnrealBloomPass. Translate them
@@ -66,10 +71,12 @@ function createInitialMonolithState() {
     currentModelIndex: -1,
     lightingMode: LIGHTING_MODE_SCENE,
     currentFx: SHARED_FX_NONE,
+    cinematicBloomOscillationStartTime: null,
+    cinematicBloomIntensityOverride: null,
     pixelMosaicEnabled: false,
+    spacebarAnimationBoost: false,
     thermalVisionEnabled: false,
     pendingLightingMode: null,
-    animationSpeedBoostEnabled: false,
     firstLoad: true,
   };
 }
@@ -94,7 +101,7 @@ function createMonolithEffectSnapshot(guiParams, state, glitchTriggerToken) {
     barrelBlurOffsetX: guiParams.barrelBlurOffsetX,
     barrelBlurOffsetY: guiParams.barrelBlurOffsetY,
     bloomEnabled: guiParams.bloomEnabled,
-    bloomIntensity: bloom.intensity,
+    bloomIntensity: state.cinematicBloomIntensityOverride ?? bloom.intensity,
     bloomRadius: bloom.radius,
     bloomSmoothing: bloom.smoothing,
     bloomThreshold: bloom.threshold,
@@ -158,6 +165,18 @@ function MonolithScene() {
   const currentModels = () => currentSetDef().models;
   const getLightingModeLabel = (mode) => LIGHTING_MODE_LABELS[mode] ?? LIGHTING_MODE_LABELS[0];
   const getEffectiveWhiteMode = () => stateRef.current.whiteMode;
+  const isSet3AnimatedModelActive = () => (
+    stateRef.current.currentSetIndex === SET3_INDEX &&
+    mixerRef.current !== null
+  );
+  const syncAnimationPlaybackSpeed = () => {
+    if (!mixerRef.current) return;
+    mixerRef.current.timeScale = (
+      stateRef.current.spacebarAnimationBoost && isSet3AnimatedModelActive()
+        ? SET3_SPACEBAR_ANIMATION_SPEED
+        : 1
+    );
+  };
 
   // ── Effect snapshot ───────────────────────────────────────────────────────────
   // syncEffectSnapshot() is the only way effectSnapshot changes. Calling it
@@ -245,6 +264,21 @@ function MonolithScene() {
     guiControlsRef.current?.syncGuiDisplay();
   };
 
+  const toggleCinematicFx = () => {
+    const enabling = stateRef.current.currentFx !== SHARED_FX_CINEMATIC;
+
+    stateRef.current.currentFx = enabling ? SHARED_FX_CINEMATIC : SHARED_FX_NONE;
+    stateRef.current.cinematicBloomOscillationStartTime = enabling
+      ? clockRef.current.getElapsedTime()
+      : null;
+    stateRef.current.cinematicBloomIntensityOverride = enabling
+      ? CINEMATIC_BLOOM_INTENSITY_START
+      : null;
+
+    syncEffectSnapshot();
+    guiControlsRef.current?.syncGuiDisplay();
+  };
+
   const refreshDisplayedModelMaterials = () => {
     if (stateRef.current.currentModelIndex < 0) return;
     materialManagerRef.current?.applyModelMaterials(
@@ -254,17 +288,6 @@ function MonolithScene() {
       stateRef.current.currentModelIndex,
       stateRef.current.xrayMode,
     );
-  };
-
-  const syncAnimationMixerSpeed = () => {
-    if (!mixerRef.current) return;
-
-    mixerRef.current.timeScale = (
-      stateRef.current.currentSetIndex === MONOLITH_SET3_INDEX
-      && stateRef.current.animationSpeedBoostEnabled
-    )
-      ? MONOLITH_SET3_SPEED_MULTIPLIER
-      : 1;
   };
 
   const swapModel = (model, name, animations) => {
@@ -280,7 +303,7 @@ function MonolithScene() {
     if (animations?.length > 0) {
       mixerRef.current = new THREE.AnimationMixer(model);
       animations.forEach((clip) => mixerRef.current.clipAction(clip).play());
-      syncAnimationMixerSpeed();
+      syncAnimationPlaybackSpeed();
     }
 
     uiRef.current?.updateLabel(name);
@@ -556,10 +579,10 @@ function MonolithScene() {
   const switchSet = (index) => {
     stateRef.current.currentSetIndex = index;
     stateRef.current.currentModelIndex = -1;
-    if (index !== MONOLITH_SET3_INDEX) {
-      stateRef.current.animationSpeedBoostEnabled = false;
+    if (index !== SET3_INDEX) {
+      stateRef.current.spacebarAnimationBoost = false;
     }
-    syncAnimationMixerSpeed();
+    syncAnimationPlaybackSpeed();
 
     const def = currentSetDef();
     overlaysRef.current?.hideAllOverlays();
@@ -583,7 +606,6 @@ function MonolithScene() {
     camera.position.set(0, 2.5, 14);
     camera.updateProjectionMatrix();
 
-    gl.setPixelRatio(window.devicePixelRatio);
     gl.toneMapping = THREE.ACESFilmicToneMapping;
     gl.toneMappingExposure = 1.4;
     gl.domElement.style.position = 'relative';
@@ -662,7 +684,7 @@ function MonolithScene() {
     });
 
     const handleSharedEffectHotkey = createSharedEffectHotkeyListener({
-      cinematic: () => toggleFx(SHARED_FX_CINEMATIC),
+      cinematic: toggleCinematicFx,
       chromaticAberration: toggleChromaticAberration,
       databend: () => toggleFx(SHARED_FX_DATABEND),
       hueCycle: toggleHueCycle,
@@ -680,10 +702,15 @@ function MonolithScene() {
     // All post-processing hotkeys are delegated to handleSharedEffectHotkey.
     const onKeyDown = (event) => {
       if (event.code === 'Space') {
-        if (event.repeat || stateRef.current.currentSetIndex !== MONOLITH_SET3_INDEX) return;
-        event.preventDefault();
-        stateRef.current.animationSpeedBoostEnabled = true;
-        syncAnimationMixerSpeed();
+        const shouldBoost = isSet3AnimatedModelActive();
+        if (shouldBoost || stateRef.current.spacebarAnimationBoost) {
+          event.preventDefault();
+        }
+
+        if (!stateRef.current.spacebarAnimationBoost) {
+          stateRef.current.spacebarAnimationBoost = true;
+          syncAnimationPlaybackSpeed();
+        }
         return;
       }
 
@@ -728,9 +755,12 @@ function MonolithScene() {
     };
 
     const onKeyUp = (event) => {
-      if (event.code !== 'Space' || stateRef.current.currentSetIndex !== MONOLITH_SET3_INDEX) return;
-      stateRef.current.animationSpeedBoostEnabled = false;
-      syncAnimationMixerSpeed();
+      if (event.code !== 'Space') return;
+
+      if (stateRef.current.spacebarAnimationBoost) {
+        stateRef.current.spacebarAnimationBoost = false;
+        syncAnimationPlaybackSpeed();
+      }
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -764,6 +794,31 @@ function MonolithScene() {
     controlsRef.current?.update();
     mixerRef.current?.update(delta);
     materialManagerRef.current?.updateXrayAnimation(elapsed);
+
+    if (stateRef.current.cinematicBloomOscillationStartTime !== null) {
+      const oscillation = 0.5 + (
+        0.5 * Math.sin((elapsed - stateRef.current.cinematicBloomOscillationStartTime) * CINEMATIC_BLOOM_OSCILLATION_SPEED)
+      );
+      const nextBloomIntensity = THREE.MathUtils.lerp(
+        CINEMATIC_BLOOM_INTENSITY_START,
+        CINEMATIC_BLOOM_INTENSITY_END,
+        oscillation,
+      );
+      const nextAmbientIntensity = THREE.MathUtils.lerp(
+        CINEMATIC_AMBIENT_INTENSITY_START,
+        CINEMATIC_AMBIENT_INTENSITY_END,
+        oscillation,
+      );
+
+      if (stateRef.current.cinematicBloomIntensityOverride !== nextBloomIntensity) {
+        stateRef.current.cinematicBloomIntensityOverride = nextBloomIntensity;
+        syncEffectSnapshot();
+      }
+
+      lightingRigRef.current?.setCinematicAmbientIntensity(nextAmbientIntensity);
+    } else {
+      lightingRigRef.current?.setCinematicAmbientIntensity(null);
+    }
 
     if (stateRef.current.hueCycleEnabled) {
       guiParamsRef.current.hue = getHueCycleHue(
