@@ -79,6 +79,21 @@ export async function cachedFetch(url) {
 }
 
 /**
+ * Returns true when the model URL already exists in the persistent Cache API.
+ *
+ * @param {string} url — the fully resolved asset URL
+ * @returns {Promise<boolean>}
+ */
+export async function hasCachedModel(url) {
+  const cache = await openModelCache();
+
+  if (!cache) return false;
+
+  const cached = await cache.match(url);
+  return Boolean(cached);
+}
+
+/**
  * Pre-warms the cache for a given URL. Useful for preloading the next/previous
  * model in a set without blocking the current load.
  *

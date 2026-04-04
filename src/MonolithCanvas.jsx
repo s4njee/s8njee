@@ -12,7 +12,7 @@ import { createOverlays } from './monolith/overlays.js';
 import { SET_DEFS } from './monolith/set-defs.js';
 import { createUI } from './monolith/ui.js';
 import { resolveAssetUrl } from './monolith/asset-url.js';
-import { cachedFetch } from './monolith/model-cache.js';
+import { cachedFetch, hasCachedModel } from './monolith/model-cache.js';
 import SafeCanvas from '../../../src/shared/webgl/SafeCanvas.tsx';
 import {
   SharedEffectStack,
@@ -70,7 +70,6 @@ function createInitialMonolithState() {
     thermalVisionEnabled: false,
     pendingLightingMode: null,
     animationSpeedBoostEnabled: false,
-    firstLoad: true,
   };
 }
 
@@ -310,6 +309,7 @@ function MonolithScene() {
   const resetLoadProgress = () => {
     if (!progressRef.current) return;
 
+    progressRef.current.container.style.transition = 'opacity 0.2s';
     progressRef.current.container.style.opacity = '1';
     progressRef.current.container.style.width = '200px';
     progressRef.current.bar.style.width = '0%';
@@ -322,8 +322,14 @@ function MonolithScene() {
     }
   };
 
+  const hideLoadProgress = ({ immediate = false } = {}) => {
+    if (!progressRef.current) return;
+    progressRef.current.container.style.transition = immediate ? 'opacity 0s' : 'opacity 0.4s';
+    progressRef.current.container.style.opacity = '0';
+  };
+
   const updateLoadProgress = (loadedBytes, totalBytes) => {
-    if (!progressRef.current || !stateRef.current.firstLoad) return;
+    if (!progressRef.current) return;
 
     if (totalBytes && totalBytes > 0) {
       progressRef.current.bar.style.width = `${Math.round((loadedBytes / totalBytes) * 100)}%`;
@@ -336,8 +342,8 @@ function MonolithScene() {
     progressRef.current.bar.style.width = `${fallbackProgress}%`;
   };
 
-  const readModelArrayBuffer = async (response) => {
-    if (!stateRef.current.firstLoad) {
+  const readModelArrayBuffer = async (response, trackProgress) => {
+    if (!trackProgress) {
       return response.arrayBuffer();
     }
 
@@ -377,22 +383,19 @@ function MonolithScene() {
     return buffer.buffer;
   };
 
-  const loadModel = (index) => {
+  const loadModel = async (index, { showProgressIfUncached = false } = {}) => {
     if (!loaderRef.current || index === stateRef.current.currentModelIndex) return;
     stateRef.current.currentModelIndex = index;
     syncEffectSnapshot({ triggerGlitch: true });
     gl.domElement.style.opacity = '0';
     overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, -1);
 
-    if (stateRef.current.firstLoad) {
-      resetLoadProgress();
-    }
-
     const entry = currentModels()[index];
     const def = currentSetDef();
     const cacheKey = entry.path;
 
     if (modelCacheRef.current.has(cacheKey)) {
+      hideLoadProgress({ immediate: true });
       const cached = modelCacheRef.current.get(cacheKey);
       materialManagerRef.current?.applyModelMaterials(
         cached.model,
@@ -404,6 +407,10 @@ function MonolithScene() {
       // TODO: skip the fade for cached hits (no network round-trip). Track the
       // timeout ID so it can be cleared on unmount (see root ToDo.md items #5, #8).
       window.setTimeout(() => {
+        // Guard: if the user navigated to a different model during the 200ms
+        // delay, this callback is stale — bail out instead of swapping the
+        // wrong model in and desyncing overlays.
+        if (stateRef.current.currentModelIndex !== index) return;
         swapModel(cached.model, entry.name, cached.animations);
         overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, index);
         revealScene();
@@ -417,13 +424,23 @@ function MonolithScene() {
     // network entirely.  DRACO decompression still runs via the DRACOLoader
     // attached to the GLTFLoader instance.
     const modelUrl = resolveAssetUrl(entry.path);
+    const shouldTrackProgress = (
+      showProgressIfUncached
+      && !(await hasCachedModel(modelUrl))
+    );
+
+    if (shouldTrackProgress) {
+      resetLoadProgress();
+    } else {
+      hideLoadProgress({ immediate: true });
+    }
 
     cachedFetch(modelUrl)
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status} loading ${entry.path}`);
         }
-        return readModelArrayBuffer(response);
+        return readModelArrayBuffer(response, shouldTrackProgress);
       })
       .then((buffer) => {
         loaderRef.current.parse(
@@ -432,11 +449,8 @@ function MonolithScene() {
           // references (textures, etc.) within the GLB
           resolveAssetUrl(entry.path.substring(0, entry.path.lastIndexOf('/') + 1)),
           (gltf) => {
-            if (stateRef.current.firstLoad && progressRef.current) {
-              stateRef.current.firstLoad = false;
-              progressRef.current.container.style.transition = 'opacity 0.4s';
-              progressRef.current.container.style.opacity = '0';
-              window.setTimeout(() => progressRef.current?.container.remove(), 500);
+            if (shouldTrackProgress) {
+              hideLoadProgress();
             }
 
             const model = gltf.scene;
@@ -456,6 +470,8 @@ function MonolithScene() {
             // TODO: track this timeout ID and clear it in the cleanup to prevent
             // stale DOM updates after unmount (see root ToDo.md #8).
             window.setTimeout(() => {
+              // Guard: if the user navigated away during the 200ms delay, skip.
+              if (stateRef.current.currentModelIndex !== index) return;
               swapModel(model, entry.name, animations);
               overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, index);
               revealScene();
@@ -568,7 +584,7 @@ function MonolithScene() {
 
     stateRef.current.pendingLightingMode = def.defaultLighting ?? LIGHTING_MODE_SCENE;
     uiRef.current?.updateSetButtons();
-    loadModel(def.defaultModel ?? 0);
+    loadModel(def.defaultModel ?? 0, { showProgressIfUncached: true });
   };
 
   // ── Setup effect (mount / unmount) ───────────────────────────────────────────────
@@ -638,7 +654,7 @@ function MonolithScene() {
     });
 
     const progressContainer = document.createElement('div');
-    progressContainer.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:200px;z-index:200';
+    progressContainer.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:200px;z-index:200;opacity:0;pointer-events:none;transition:opacity 0.4s';
     const progressBar = document.createElement('div');
     progressBar.style.cssText = 'width:0%;height:2px;background:#fff;transition:width 0.2s';
     const progressLabel = document.createElement('div');
@@ -754,6 +770,7 @@ function MonolithScene() {
       dracoLoader.dispose();
       mixerRef.current?.stopAllAction();
     };
+    // camera, gl, and scene are stable R3F singletons — this runs once on mount.
   }, [camera, gl, scene]);
 
   // ── Per-frame animation loop ─────────────────────────────────────────────────────────

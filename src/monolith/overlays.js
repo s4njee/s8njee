@@ -162,7 +162,6 @@ export function createOverlays(scene) {
   // ── Visibility control ─────────────────────────────────────────────────────────
 
   function hideAllOverlays() {
-    mahoragaText.visible = false;
     allSceneTexts.forEach((text) => { text.visible = false; });
     Object.values(setLogos).forEach((mesh) => { mesh.visible = false; });
     csmLogoMesh.visible = false;
