@@ -35,6 +35,8 @@ const LIGHTING_MODE_LABELS = [
   'B (Particles)',
 ];
 const CHROMATIC_OSCILLATION_SPEED = 3.2;
+const MONOLITH_SET3_INDEX = 2;
+const MONOLITH_SET3_SPEED_MULTIPLIER = 1.4;
 
 function mapMonolithBloomSettings(guiParams) {
   // Monolith's legacy sliders were tuned for UnrealBloomPass. Translate them
@@ -46,6 +48,8 @@ function mapMonolithBloomSettings(guiParams) {
     threshold: THREE.MathUtils.clamp((guiParams.bloomThreshold - 0.77) * 0.05, 0, 1),
   };
 }
+
+// ── Initial state factory ──────────────────────────────────────────────────────────────
 
 function createInitialMonolithState() {
   return {
@@ -65,9 +69,12 @@ function createInitialMonolithState() {
     pixelMosaicEnabled: false,
     thermalVisionEnabled: false,
     pendingLightingMode: null,
+    animationSpeedBoostEnabled: false,
     firstLoad: true,
   };
 }
+
+// ── Glitch logic ───────────────────────────────────────────────────────────────────────
 
 function canTriggerMonolithGlitch(state) {
   return (
@@ -120,6 +127,12 @@ function createMonolithEffectSnapshot(guiParams, state, glitchTriggerToken) {
 
 function MonolithScene() {
   const { gl, scene, camera } = useThree();
+
+  // ── Refs ────────────────────────────────────────────────────────────────────
+  // All mutable scene values live in refs rather than state so they can be
+  // read and written imperatively inside callbacks and the useFrame loop
+  // without triggering re-renders. Only effectSnapshot is React state, because
+  // SharedEffectStack needs to re-render when post-processing settings change.
   const controlsRef = useRef(null);
   const clockRef = useRef(new THREE.Clock());
   const guiParamsRef = useRef(createDefaultGuiParams());
@@ -130,7 +143,7 @@ function MonolithScene() {
   const guiControlsRef = useRef(null);
   const progressRef = useRef(null);
   const loaderRef = useRef(null);
-  const modelCacheRef = useRef(new Map());
+  const modelCacheRef = useRef(new Map()); // session cache keyed by model path; see TODO in root ToDo.md #6
   const mixerRef = useRef(null);
   const monolithRef = useRef(new THREE.Group());
   const stateRef = useRef(createInitialMonolithState());
@@ -139,10 +152,18 @@ function MonolithScene() {
     createMonolithEffectSnapshot(guiParamsRef.current, stateRef.current, glitchTriggerTokenRef.current)
   ));
 
+  // ── Derived helpers ────────────────────────────────────────────────────────────
+
   const currentSetDef = () => SET_DEFS[stateRef.current.currentSetIndex];
   const currentModels = () => currentSetDef().models;
   const getLightingModeLabel = (mode) => LIGHTING_MODE_LABELS[mode] ?? LIGHTING_MODE_LABELS[0];
   const getEffectiveWhiteMode = () => stateRef.current.whiteMode;
+
+  // ── Effect snapshot ───────────────────────────────────────────────────────────
+  // syncEffectSnapshot() is the only way effectSnapshot changes. Calling it
+  // causes SharedEffectStack to re-render with the latest settings from both
+  // guiParamsRef and stateRef. triggerGlitch increments a token that
+  // SharedEffectStack uses to fire a one-shot glitch burst.
 
   const revealScene = () => {
     if (stateRef.current.pendingLightingMode !== null) {
@@ -165,6 +186,8 @@ function MonolithScene() {
       ),
     );
   };
+
+  // ── Scene / material helpers ──────────────────────────────────────────────────────
 
   const markDisplayedModelMaterialsDirty = () => {
     monolithRef.current.traverse((child) => {
@@ -233,6 +256,17 @@ function MonolithScene() {
     );
   };
 
+  const syncAnimationMixerSpeed = () => {
+    if (!mixerRef.current) return;
+
+    mixerRef.current.timeScale = (
+      stateRef.current.currentSetIndex === MONOLITH_SET3_INDEX
+      && stateRef.current.animationSpeedBoostEnabled
+    )
+      ? MONOLITH_SET3_SPEED_MULTIPLIER
+      : 1;
+  };
+
   const swapModel = (model, name, animations) => {
     if (mixerRef.current) {
       mixerRef.current.stopAllAction();
@@ -246,10 +280,17 @@ function MonolithScene() {
     if (animations?.length > 0) {
       mixerRef.current = new THREE.AnimationMixer(model);
       animations.forEach((clip) => mixerRef.current.clipAction(clip).play());
+      syncAnimationMixerSpeed();
     }
 
     uiRef.current?.updateLabel(name);
   };
+
+  // ── Model loading ────────────────────────────────────────────────────────────────
+  // Load order: in-memory Map (modelCacheRef) → Cache API (cachedFetch) → network.
+  // Parsed GLTF scenes are kept in modelCacheRef so revisiting a model in the
+  // same session avoids re-parsing. cachedFetch caches the raw GLB bytes in the
+  // browser Cache API so subsequent sessions skip the network request entirely.
 
   /** Displays the red "failed to load" progress bar state. */
   const showLoadError = (modelName) => {
@@ -286,6 +327,8 @@ function MonolithScene() {
         index,
         stateRef.current.xrayMode,
       );
+      // TODO: skip the fade for cached hits (no network round-trip). Track the
+      // timeout ID so it can be cleared on unmount (see root ToDo.md items #5, #8).
       window.setTimeout(() => {
         swapModel(cached.model, entry.name, cached.animations);
         overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, index);
@@ -336,6 +379,8 @@ function MonolithScene() {
             );
 
             modelCacheRef.current.set(cacheKey, { model, animations });
+            // TODO: track this timeout ID and clear it in the cleanup to prevent
+            // stale DOM updates after unmount (see root ToDo.md #8).
             window.setTimeout(() => {
               swapModel(model, entry.name, animations);
               overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, index);
@@ -356,6 +401,8 @@ function MonolithScene() {
       });
   };
 
+  // ── Mode switching ────────────────────────────────────────────────────────────────
+
   const switchLightingMode = (mode) => {
     stateRef.current.lightingMode = mode;
     if (lightingRigRef.current) {
@@ -368,6 +415,8 @@ function MonolithScene() {
     guiControlsRef.current?.syncGuiDisplay();
     uiRef.current?.updateModeButtons();
   };
+
+  // ── Effect toggles ────────────────────────────────────────────────────────────────
 
   const toggleWhiteMode = () => {
     setWhiteMode(!stateRef.current.whiteMode);
@@ -433,6 +482,10 @@ function MonolithScene() {
   const switchSet = (index) => {
     stateRef.current.currentSetIndex = index;
     stateRef.current.currentModelIndex = -1;
+    if (index !== MONOLITH_SET3_INDEX) {
+      stateRef.current.animationSpeedBoostEnabled = false;
+    }
+    syncAnimationMixerSpeed();
 
     const def = currentSetDef();
     overlaysRef.current?.hideAllOverlays();
@@ -443,6 +496,8 @@ function MonolithScene() {
     uiRef.current?.updateSetButtons();
     loadModel(def.defaultModel ?? 0);
   };
+
+  // ── Setup effect (mount / unmount) ───────────────────────────────────────────────
 
   useEffect(() => {
     scene.background = new THREE.Color(0x111111);
@@ -542,7 +597,22 @@ function MonolithScene() {
       xrayMode: toggleXrayMode,
     });
 
+  // ── Hotkey handler ────────────────────────────────────────────────────────────────
+    // Arrow keys → model navigation within the active set.
+    // Tab       → cycle sets forward.
+    // 6         → toggle white mode.
+    // G         → toggle lil-gui debug panel.
+    // Number keys (7/8/0) → jump to hidden sets (wired via SET_DEFS.hotkey).
+    // All post-processing hotkeys are delegated to handleSharedEffectHotkey.
     const onKeyDown = (event) => {
+      if (event.code === 'Space') {
+        if (event.repeat || stateRef.current.currentSetIndex !== MONOLITH_SET3_INDEX) return;
+        event.preventDefault();
+        stateRef.current.animationSpeedBoostEnabled = true;
+        syncAnimationMixerSpeed();
+        return;
+      }
+
       if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
         event.preventDefault();
         const models = currentModels();
@@ -583,7 +653,14 @@ function MonolithScene() {
       }
     };
 
+    const onKeyUp = (event) => {
+      if (event.code !== 'Space' || stateRef.current.currentSetIndex !== MONOLITH_SET3_INDEX) return;
+      stateRef.current.animationSpeedBoostEnabled = false;
+      syncAnimationMixerSpeed();
+    };
+
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
 
     switchSet(stateRef.current.currentSetIndex);
     syncEffectSnapshot();
@@ -591,6 +668,7 @@ function MonolithScene() {
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
       controls.dispose();
       guiControlsRef.current?.destroy();
       uiRef.current?.destroy();
@@ -603,6 +681,8 @@ function MonolithScene() {
       mixerRef.current?.stopAllAction();
     };
   }, [camera, gl, scene]);
+
+  // ── Per-frame animation loop ─────────────────────────────────────────────────────────
 
   useFrame((_, delta) => {
     const elapsed = clockRef.current.getElapsedTime();
@@ -621,7 +701,9 @@ function MonolithScene() {
     }
 
     if (stateRef.current.lightingMode === LIGHTING_MODE_SCENE) {
-      lightingRigRef.current?.updateSceneLighting();
+      lightingRigRef.current?.updateSceneLighting({
+        forceRefresh: effectSnapshot.cinematicEnabled && effectSnapshot.bloomEnabled,
+      });
     } else if (stateRef.current.lightingMode === LIGHTING_MODE_PARTICLES) {
       lightingRigRef.current?.updateParticleLighting();
     }

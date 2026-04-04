@@ -1,8 +1,24 @@
 import * as THREE from 'three';
 
+// ── Material manager ─────────────────────────────────────────────────────────────
+// Centralises all material-related operations for Monolith models:
+//   - State capture/restore so any material can be reset to its GLB defaults
+//   - Per-set style overrides (anime flat shading, metalness/roughness tuning)
+//   - X-ray mode: injects GLSL into Three.js’s shader via onBeforeCompile,
+//     adding animated rim glow, scanline distortion, and transparency pulses
+//   - Texture anisotropy maximisation on load
+//
+// All functions are fully encapsulated. The returned object is the only
+// surface MonolithScene interacts with.
+
 export function createMaterialManager(renderer) {
+  // ── State capture / restore ───────────────────────────────────────────────
+  // We store the original property values from the parsed GLB so any mode
+  // (overrides, anime, x-ray) can be reverted cleanly without reloading.
   const originalMaterialState = new WeakMap();
   const xrayAnimatedMaterials = new Set();
+
+  // X-ray shader visual constants
   const XRAY_RIM_STRENGTH = 1.35;
   const XRAY_RIM_POWER = 2.4;
   const XRAY_RIM_COLOR = new THREE.Color(0xe8fbff);
@@ -69,6 +85,14 @@ export function createMaterialManager(renderer) {
     mat.needsUpdate = true;
   }
 
+  // ── X-ray shader ────────────────────────────────────────────────────────────
+  // applyXrayShader patches onBeforeCompile to inject custom GLSL uniforms
+  // into Three.js’s built-in material shaders. The injected code adds:
+  //   - Animated rim light (fresnel-based, view-dependent)
+  //   - Vertex position distortion along Y-axis scanlines
+  //   - Animated opacity/scanline teardown in the fragment stage
+  // userData.xrayShader holds a reference to the compiled ShaderObject so
+  // updateXrayAnimation() can update uniforms each frame without re-compiling.
   function applyXrayShader(mat) {
     if (!mat.isMeshStandardMaterial && !mat.isMeshPhysicalMaterial && !mat.isMeshPhongMaterial && !mat.isMeshLambertMaterial) {
       return;
@@ -212,8 +236,13 @@ export function createMaterialManager(renderer) {
     });
   }
 
+  // ── Material application ─────────────────────────────────────────────────────
+
   function applyModelMaterials(model, def, setIndex, modelIndex, xrayMode) {
     applyMaterialOverrides(model, def, setIndex, modelIndex);
+    // Set 3 is the Star Wars set. Its nullBackground + point-ring lighting
+    // creates a deep-space look where x-ray flicker and positional distortion
+    // are deliberately exaggerated. All other sets use neutral (0) values.
     const flickerStrength = setIndex === 3 ? 1 : 0;
     const distortionStrength = setIndex === 3 ? 1 : 0;
     forEachMaterial(model, (mat) => {
@@ -250,6 +279,8 @@ export function createMaterialManager(renderer) {
     }
   }
 
+  // ── Texture and geometry utilities ──────────────────────────────────────────
+
   function applyModelTextureFiltering(model) {
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     model.traverse((child) => {
@@ -266,6 +297,9 @@ export function createMaterialManager(renderer) {
     });
   }
 
+  // ── Per-frame x-ray animation ─────────────────────────────────────────────────
+  // Updates the uniforms injected by applyXrayShader() each frame.
+  // Only materials in the xrayAnimatedMaterials Set are visited.
   function updateXrayAnimation(time) {
     for (const mat of xrayAnimatedMaterials) {
       const shader = mat.userData.xrayShader;

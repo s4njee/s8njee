@@ -2,8 +2,26 @@ import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 import { resolveAssetUrl } from './asset-url.js';
 
+// ── Overlays ───────────────────────────────────────────────────────────────
+// Creates and manages all scene overlay elements for Monolith.
+// Two categories of overlay exist:
+//
+//   3D text (Troika)  — in-world labels rendered by troika-three-text, added
+//                        directly to the Three.js scene. These respect the
+//                        camera perspective and white-mode color inversion.
+//
+//   DOM / logo          — a mix of HTML <img> elements (the Star Wars SVG
+//                        overlay) and Three.js PlaneGeometry meshes with
+//                        transparent textures (franchise logo quads).
+//
+// updateTextVisibility() is the main entry point called after every model
+// switch. It uses hardcoded set/model index comparisons — see the TODO in
+// the Monolith roadmap for the planned data-driven replacement.
+
 export function createOverlays(scene) {
   const disposables = [];
+
+  // ── Troika text factory ────────────────────────────────────────────────────
 
   function createText(opts) {
     const text = new Text();
@@ -29,6 +47,9 @@ export function createOverlays(scene) {
     return text;
   }
 
+  // ── Logo mesh factory ─────────────────────────────────────────────────────
+  // Renders a PNG/SVG texture on a transparent PlaneGeometry mesh in the
+  // Three.js scene. `aspect` is width/height of the source image.
   function create3DLogo(texturePath, aspect, height, position, extraOpts = {}) {
     const texture = new THREE.TextureLoader().load(resolveAssetUrl(texturePath));
     const material = new THREE.MeshBasicMaterial({
@@ -51,6 +72,8 @@ export function createOverlays(scene) {
     });
     return mesh;
   }
+
+  // ── Troika text overlays per set/model ──────────────────────────────────────
 
   const mahoragaText = createText({
     text: 'EIGHT-HANDLED SWORD\nDIVERGENT SILA\nDIVINE GENERAL\nMAHORAGA',
@@ -119,6 +142,10 @@ export function createOverlays(scene) {
 
   const allSceneTexts = [evaTitle, evaSubtitle, evaJpText, eva02Title, eva02Subtitle, eva02JpText, mahoragaText];
 
+  // ── DOM and 3D logo overlays per set ──────────────────────────────────────
+  // csmLogoMesh is not in setLogos because it can appear in two different sets
+  // (set 0 model 5, and set 4 model 1). setLogos entries are 1:1 with set index.
+
   const swLogo = document.createElement('img');
   swLogo.src = resolveAssetUrl('/set4/starwars_logo_yellow.svg');
   swLogo.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-55%);width:50vw;opacity:0.12;pointer-events:none;z-index:0;display:none';
@@ -131,6 +158,8 @@ export function createOverlays(scene) {
   const opLogoMesh = create3DLogo('/set6/onepiece_logo.png', 1600 / 740, 3.0, [-4.5, 7.0, -3]);
   const rimuruLogoMesh = create3DLogo('/set8/rimuru_logo.png', 900 / 615, 3.0, [-3.5, 7.0, -3], { alphaTest: 0.01 });
   const setLogos = { 0: fateLogoMesh, 1: evaLogoMesh, 5: opLogoMesh, 6: rimuruLogoMesh };
+
+  // ── Visibility control ─────────────────────────────────────────────────────────
 
   function hideAllOverlays() {
     mahoragaText.visible = false;

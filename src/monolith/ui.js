@@ -1,5 +1,23 @@
 import { resolveAssetUrl } from './asset-url.js';
 
+// ── DOM UI ────────────────────────────────────────────────────────────────────
+// Builds and manages all persistent DOM chrome for the Monolith scene.
+// Everything here is imperative DOM construction (createElement + cssText)
+// rather than React, because MonolithScene renders inside a Three.js Canvas
+// and these elements live in the page body outside the canvas hierarchy.
+//
+// Elements created:
+//   label       — bottom-centre model name, shown briefly after each load
+//   musicBtn    — top-right music toggle (♪ symbol)
+//   setNav      — bottom-centre row of set-switcher buttons (one per SET_DEFS entry)
+//   modeNav     — top-left row of lighting-mode buttons (A / B)
+//
+// All elements are appended to document.body and removed in destroy().
+// The label timeout ID is tracked locally (labelTimeout) and cleared in
+// destroy() to match the cleanup contract.
+//
+// See root ToDo.md §2 for the planned localStorage set/model persistence.
+
 export function createUI({
   setDefs,
   getWhiteMode,
@@ -8,9 +26,13 @@ export function createUI({
   onSwitchSet,
   onSwitchLightingMode,
 }) {
+  // ── Model name label ──────────────────────────────────────────────────────
+
   const label = document.createElement('div');
   label.style.cssText = 'position:fixed;bottom:64px;left:50%;transform:translateX(-50%);color:#fff;font:14px/1 monospace;opacity:0;transition:opacity 0.3s;pointer-events:none;text-shadow:0 1px 4px #000';
   document.body.appendChild(label);
+
+  // ── Music button ───────────────────────────────────────────────────────────
 
   const musicBtn = document.createElement('div');
   musicBtn.textContent = '♪';
@@ -42,6 +64,8 @@ export function createUI({
     }
   });
 
+  // ── Shared button style helper ────────────────────────────────────────────────────
+
   const BTN_CSS = 'width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.3);color:#fff;font:14px/1 monospace;cursor:pointer;background:rgba(255,255,255,0.05);transition:all 0.2s;user-select:none';
 
   function styleButton(button, active) {
@@ -51,6 +75,10 @@ export function createUI({
     button.style.background = `rgba(${colorTriplet},${active ? (whiteMode ? 0.15 : 0.25) : 0.05})`;
     button.style.borderColor = `rgba(${colorTriplet},${active ? 0.7 : 0.3})`;
   }
+
+  // ── Set nav buttons ────────────────────────────────────────────────────────────
+  // Hidden sets (def.hidden === true) get display:none so they don’t appear
+  // in the nav bar but still exist in the buttons array for state tracking.
 
   const setNav = document.createElement('div');
   setNav.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10';
@@ -73,6 +101,8 @@ export function createUI({
     setButtons.push(button);
   });
 
+  // ── Lighting mode buttons (A / B) ──────────────────────────────────────────────────
+
   const modeNav = document.createElement('div');
   modeNav.style.cssText = 'position:fixed;top:16px;left:16px;display:flex;gap:8px;z-index:10';
   document.body.appendChild(modeNav);
@@ -92,6 +122,8 @@ export function createUI({
     modeNav.appendChild(button);
     modeButtons.push(button);
   });
+
+  // ── Update helpers and public API ───────────────────────────────────────────────────
 
   function updateLabel(name) {
     label.textContent = name;

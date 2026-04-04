@@ -1,6 +1,6 @@
 # Monolith Visualization Roadmap
 
-> Last reviewed: 2026-03-25
+> Last reviewed: 2026-04-03 (audit: no new completions — all open items verified unfinished)
 
 This file tracks the current Monolith implementation, marks what is already in place, and sorts the remaining work by value and implementation cost.
 

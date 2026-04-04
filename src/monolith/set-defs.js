@@ -1,3 +1,25 @@
+// ── Set definitions ──────────────────────────────────────────────────────────────
+// SET_DEFS is the single source of truth for every model set in Monolith.
+// Each entry drives:
+//   models          — ordered list of GLB assets for this set
+//   buttonLabel     — text shown on the set-switcher button in the UI
+//   lightingStyle   — key into sceneLightingEffects in lighting.js
+//   particleHue     — colour mode for lighting mode B ('warm', 'rainbow', or undefined for white)
+//   materialStyle   — 'anime' applies flat/no-env-map shading; omit for PBR
+//   materialOverrides — array of { match(si,mi), metalness, roughness, clearMetalnessMap }
+//   lightingOverrides — per model-index lighting style overrides
+//   positionYOffset — baseline Y lift applied to every model in the set
+//   positionYOffsetOverrides — per model-index Y lift exceptions
+//   rotationOverride — { x, y, z } replaces the default y=0.35 rotation
+//   nullBackground  — renders scene background as null (transparent / black void)
+//   defaultModel    — index to load when entering the set (defaults to 0)
+//   defaultLighting — lighting mode to apply on set entry (0=Scene, 1=Particles)
+//   hidden          — hides the button; set is only reachable via hotkey
+//   hotkey          — keyboard key string that jumps directly to this set
+//
+// Sets 0–4 are the visible rows in the nav bar.
+// Sets 5–7 are hidden easter-egg sets reachable only via number-key hotkeys.
+
 export const SET_DEFS = [
   {
     models: [

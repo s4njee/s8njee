@@ -1,12 +1,27 @@
 import * as THREE from 'three';
 import { resolveAssetUrl } from './asset-url.js';
 
-export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, getMonolith, guiParams }) {
-  const RING_TOP = 8;
-  const RING_BOTTOM = -3;
-  const RING_RANGE = RING_TOP - RING_BOTTOM;
-  const RING_SPEED = 0.0004;
+// ── Lighting rig ──────────────────────────────────────────────────────────────
+// Creates and animates all Three.js lights used by MonolithScene.
+// Two lighting modes are supported:
+//   Mode A (Scene)     — a static backdrop of directional/spot/street lights,
+//                        style selected per-set via SET_DEFS.lightingStyle.
+//   Mode B (Particles) — 5000 falling particles with 6 proximity point lights
+//                        that respond to how close particles are to the model.
+//
+// The returned object exposes only the methods MonolithScene needs;
+// all internal light instances and buffers are fully encapsulated.
 
+export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, getMonolith, guiParams }) {
+  // ── Animation constants ─────────────────────────────────────────────────────
+  const RING_TOP = 8;        // World-space Y where a moving ring light starts
+  const RING_BOTTOM = -3;    // World-space Y where it exits the frame
+  const RING_RANGE = RING_TOP - RING_BOTTOM;
+  const RING_SPEED = 0.0004; // Normalised units per ms
+
+  // ── Particle system (Lighting mode B) ──────────────────────────────────────
+  // 5000 falling point-sprites that drift downward and wrap at y=-1.
+  // Their positions drive proximity glow lights toward the active model.
   const ambient = new THREE.AmbientLight(0xffffff, 0);
   scene.add(ambient);
 
@@ -48,6 +63,11 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     glowLights.push(light);
   }
 
+  // ── Scene lights (Lighting mode A) ─────────────────────────────────────────
+  // These are all created up front and selectively activated by the style
+  // functions in sceneLightingEffects. resetAllLights() zeros their intensities
+  // at the top of every updateSceneLighting() call so the active style has a
+  // clean starting state each frame.
   const ringGeometry = new THREE.TorusGeometry(3, 0.05, 8, 64);
   const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
   const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
@@ -96,6 +116,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
 
   let lightFrame = 0;
   const tempColor = new THREE.Color();
+  let lastStaticSceneSignature = null;
 
   function resetAllLights() {
     ringLight.intensity = 0;
@@ -107,6 +128,11 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     streetLight1.intensity = 0;
     streetLight2.intensity = 0;
     heroSpotLight.intensity = 0;
+    dirRingLight.visible = false;
+    dirRingLight2.visible = false;
+    warmLight.visible = false;
+    coolLight.visible = false;
+    heroSpotLight.visible = false;
   }
 
   function clearParticleGlow() {
@@ -128,6 +154,14 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     ambient.intensity = guiParams.ambientIntensity;
   }
 
+  function getAmbientOverrideSignature() {
+    if (!guiParams.ambientOverrideEnabled) {
+      return 'off';
+    }
+
+    return `${guiParams.ambientColor}:${guiParams.ambientIntensity}`;
+  }
+
   function getPulse(progress) {
     return Math.min(Math.min(progress, 1 - progress) * 5, 1);
   }
@@ -143,6 +177,8 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
   }
 
   function animateDirectionalRingPair({ nowMs, intensityScale, speed = RING_SPEED, zOffset = 2 }) {
+    dirRingLight.visible = true;
+    dirRingLight2.visible = true;
     const progress = nowMs * speed;
     const p1 = progress % 1.0;
     const p2 = (progress + 0.5) % 1.0;
@@ -165,6 +201,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
   }
 
   function animateSingleDirectionalRing({ nowMs, intensityScale, speed = 0.00015, zOffset = 2 }) {
+    dirRingLight.visible = true;
     const progress = (nowMs * speed) % 1.0;
     const center = Math.abs(progress - 0.5) * 2;
     dirRingLight.position.set(0, RING_TOP - progress * RING_RANGE, zOffset);
@@ -283,11 +320,16 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     }
   }
 
+  // ── Scene lighting style effects ───────────────────────────────────────────
+  // Each entry corresponds to a SET_DEFS.lightingStyle value.
+  // Called every frame by updateSceneLighting() after resetAllLights().
   const sceneLightingEffects = {
     neon: ({ nowMs }) => {
       const angle = nowMs * 0.0004;
       ambient.color.set(0xcc44ff);
       ambient.intensity = 1.0;
+      warmLight.visible = true;
+      coolLight.visible = true;
       warmLight.color.set(0xff1493);
       coolLight.color.set(0x8800ff);
       warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
@@ -298,6 +340,8 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
 
     splitTone: ({ nowMs }) => {
       const angle = nowMs * 0.0003;
+      warmLight.visible = true;
+      coolLight.visible = true;
       warmLight.color.set(0xff8844);
       coolLight.color.set(0x4488ff);
       warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
@@ -348,6 +392,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
 
     ambientBright: () => {
       ambient.intensity = 8.4;
+      dirRingLight.visible = true;
       dirRingLight.position.set(0, 10, 2);
       dirRingLight.target.position.set(0, 0, 0);
       dirRingLight.intensity = 6;
@@ -362,6 +407,21 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     },
   };
 
+  const sceneLightingConfigs = {
+    neon: { animated: true, heroSpotlightIntensity: 5.5 },
+    splitTone: { animated: true, heroSpotlightIntensity: 5.5 },
+    dualRingBright: { animated: true, heroSpotlightIntensity: 0 },
+    dualRing: { animated: true, heroSpotlightIntensity: 0 },
+    singleRing: { animated: true, heroSpotlightIntensity: 0 },
+    streetlightSlow: { animated: true, heroSpotlightIntensity: 5.5 },
+    streetlight: { animated: true, heroSpotlightIntensity: 5.5 },
+    ambientBright: { animated: false, heroSpotlightIntensity: 0 },
+    ambientOnly: { animated: false, heroSpotlightIntensity: 0 },
+    pointRing: { animated: true, heroSpotlightIntensity: 0 },
+  };
+
+  // ── Per-frame update entry points ───────────────────────────────────────────
+
   function updateParticleLighting() {
     resetAllLights();
     ambient.color.set(0xffffff);
@@ -372,11 +432,10 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     const hueType = currentSetDef().particleHue;
     let baseHue = getParticleBaseHue({ hueType, time: t });
 
+    // Throttle color + glow-light computation to every 4th frame to reduce
+    // the per-frame cost of iterating all 5000 particles on the CPU.
     if (lightFrame % 4 === 0) {
       baseHue = updateParticleColors({ time: t, hueType });
-    }
-
-    if (lightFrame % 4 === 0) {
       const monolith = getMonolith();
       const nearestParticles = collectNearestParticlesToMonolith(positions, monolith.position);
       updateParticleGlowLights({ baseHue, hueType, nearestParticles });
@@ -384,18 +443,35 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     lightFrame++;
   }
 
-  function updateSceneLighting() {
+  function updateSceneLighting({ forceRefresh = false } = {}) {
     const style = getLightingStyle();
     const effect = sceneLightingEffects[style] ?? sceneLightingEffects.pointRing;
-    const monolith = getMonolith();
+    const config = sceneLightingConfigs[style] ?? sceneLightingConfigs.pointRing;
+    const ambientOverrideSignature = getAmbientOverrideSignature();
+    const staticSceneSignature = `${style}:${ambientOverrideSignature}`;
+
+    if (!forceRefresh && !config.animated && lastStaticSceneSignature === staticSceneSignature) {
+      return;
+    }
+
+    const monolith = config.heroSpotlightIntensity > 0 ? getMonolith() : null;
     const nowMs = Date.now();
+
+    if (config.animated) {
+      lastStaticSceneSignature = null;
+    } else {
+      lastStaticSceneSignature = staticSceneSignature;
+    }
 
     ambient.color.set(0xffffff);
     resetAllLights();
-    setHeroSpotlightTarget(monolith);
+    if (monolith) {
+      heroSpotLight.visible = true;
+      setHeroSpotlightTarget(monolith);
+    }
     effect({ monolith, nowMs, style });
 
-    heroSpotLight.intensity = style === 'ambientOnly' ? 8 : 5.5;
+    heroSpotLight.intensity = config.heroSpotlightIntensity;
 
     applyAmbientOverrides();
   }

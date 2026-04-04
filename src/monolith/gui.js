@@ -1,6 +1,26 @@
 import * as THREE from 'three';
 import GUI from 'lil-gui';
 
+// ── GUI controls ──────────────────────────────────────────────────────────────
+// Wraps lil-gui to provide a floating debug panel for Monolith.
+//
+// Two exports:
+//   createDefaultGuiParams() — the canonical starting values for every slider
+//     and toggle. MonolithScene holds a live ref to this object; lil-gui reads
+//     and writes it directly via its mutable-object pattern.
+//
+//   createGuiControls(...)   — builds the panel, wires all folder/controller
+//     callbacks, and returns { destroy, syncGuiDisplay, toggleGUI }.
+//     syncGuiDisplay() is called after any external state change so the panel
+//     reflects the current values without the user having to reopen it.
+//
+// The panel is hidden by default and toggled with the G key (wired in
+// MonolithCanvas.jsx). It stays at z-index 200 so it floats above everything.
+
+// ── Default params ──────────────────────────────────────────────────────────────
+// Bloom values are tuned for Monolith’s legacy UnrealBloomPass range and are
+// translated to @react-three/postprocessing equivalents in mapMonolithBloomSettings().
+
 export function createDefaultGuiParams() {
   const lightingModes = ['A (Scene)', 'B (Particles)'];
 
@@ -39,6 +59,8 @@ export function createDefaultGuiParams() {
   };
 }
 
+// ── GUI panel builder ──────────────────────────────────────────────────────────────
+
 export function createGuiControls({
   guiParams,
   renderer,
@@ -54,6 +76,8 @@ export function createGuiControls({
   const gui = new GUI({ title: '⚙ Settings' });
   gui.domElement.style.zIndex = '200';
   gui.hide();
+
+  // ── Post-processing folders ──────────────────────────────────────────────────────
 
   const bloomFolder = gui.addFolder('Bloom');
   bloomFolder.add(guiParams, 'bloomEnabled').name('Enabled').onChange(onEffectSettingsChange);
@@ -90,6 +114,8 @@ export function createGuiControls({
   scanlineFolder.add(guiParams, 'scanlineOpacity', 0, 1, 0.01).name('Opacity').onChange(onEffectSettingsChange);
   scanlineFolder.add(guiParams, 'scanlineScrollSpeed', 0, 2, 0.01).name('Scroll Speed').onChange(onEffectSettingsChange);
 
+  // ── Renderer folders ────────────────────────────────────────────────────────────
+
   const toneFolder = gui.addFolder('Tone Mapping');
   toneFolder.add(guiParams, 'exposure', 0, 3, 0.01).name('Exposure').onChange((value) => {
     renderer.toneMappingExposure = value;
@@ -106,6 +132,8 @@ export function createGuiControls({
     };
     renderer.toneMapping = map[value] ?? THREE.ACESFilmicToneMapping;
   });
+
+  // ── Scene / lighting folders ────────────────────────────────────────────────────
 
   const ambientFolder = gui.addFolder('Ambient Light');
   ambientFolder.add(guiParams, 'ambientOverrideEnabled').name('Override Enabled');
@@ -124,9 +152,13 @@ export function createGuiControls({
     onLightingModeChange(Math.max(lightingModes.indexOf(value), 0));
   });
 
+  // ── Panel show/hide helpers ─────────────────────────────────────────────────────
+
   let guiVisible = false;
 
   function syncGuiDisplay() {
+    // Refreshes every controller so external state changes (hotkeys, mode
+    // switches) are immediately reflected without reopening the panel.
     gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
   }
 
