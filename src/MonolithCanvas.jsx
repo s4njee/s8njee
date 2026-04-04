@@ -12,7 +12,7 @@ import { createOverlays } from './monolith/overlays.js';
 import { SET_DEFS } from './monolith/set-defs.js';
 import { createUI } from './monolith/ui.js';
 import { resolveAssetUrl } from './monolith/asset-url.js';
-import { cachedFetch, hasCachedModel } from './monolith/model-cache.js';
+import { executeModelLoad, clearPendingTimeouts } from './monolith/model-loader.js';
 import SafeCanvas from '../../../src/shared/webgl/SafeCanvas.tsx';
 import {
   SharedEffectStack,
@@ -286,209 +286,34 @@ function MonolithScene() {
   };
 
   // ── Model loading ────────────────────────────────────────────────────────────────
-  // Load order: in-memory Map (modelCacheRef) → Cache API (cachedFetch) → network.
-  // Parsed GLTF scenes are kept in modelCacheRef so revisiting a model in the
-  // same session avoids re-parsing. cachedFetch caches the raw GLB bytes in the
-  // browser Cache API so subsequent sessions skip the network request entirely.
-
-  /** Displays the red "failed to load" progress bar state. */
-  const showLoadError = (modelName) => {
-    if (progressRef.current) {
-      progressRef.current.container.style.opacity = '1';
-      progressRef.current.bar.style.width = '100%';
-      progressRef.current.bar.style.background = '#ff5c5c';
-      progressRef.current.container.style.width = '320px';
-      const label = progressRef.current.container.firstChild;
-      if (label) {
-        label.textContent = `failed to load ${modelName.toLowerCase()}`;
-        label.style.color = 'rgba(255,92,92,0.9)';
-      }
-    }
-  };
-
-  const resetLoadProgress = () => {
-    if (!progressRef.current) return;
-
-    progressRef.current.container.style.transition = 'opacity 0.2s';
-    progressRef.current.container.style.opacity = '1';
-    progressRef.current.container.style.width = '200px';
-    progressRef.current.bar.style.width = '0%';
-    progressRef.current.bar.style.background = '#fff';
-
-    const label = progressRef.current.container.firstChild;
-    if (label) {
-      label.textContent = 'loading';
-      label.style.color = 'rgba(255,255,255,0.5)';
-    }
-  };
-
-  const hideLoadProgress = ({ immediate = false } = {}) => {
-    if (!progressRef.current) return;
-    progressRef.current.container.style.transition = immediate ? 'opacity 0s' : 'opacity 0.4s';
-    progressRef.current.container.style.opacity = '0';
-  };
-
-  const updateLoadProgress = (loadedBytes, totalBytes) => {
-    if (!progressRef.current) return;
-
-    if (totalBytes && totalBytes > 0) {
-      progressRef.current.bar.style.width = `${Math.round((loadedBytes / totalBytes) * 100)}%`;
-      return;
-    }
-
-    // Some cached/proxied responses do not expose Content-Length. In that case,
-    // still show visible progress instead of leaving the bar at 0%.
-    const fallbackProgress = Math.min(90, 8 + Math.sqrt(loadedBytes / 65536) * 18);
-    progressRef.current.bar.style.width = `${fallbackProgress}%`;
-  };
-
-  const readModelArrayBuffer = async (response, trackProgress) => {
-    if (!trackProgress) {
-      return response.arrayBuffer();
-    }
-
-    const totalBytes = Number.parseInt(response.headers.get('content-length') ?? '', 10);
-
-    if (!response.body || !Number.isFinite(totalBytes)) {
-      const buffer = await response.arrayBuffer();
-      updateLoadProgress(buffer.byteLength, Number.isFinite(totalBytes) ? totalBytes : 0);
-      return buffer;
-    }
-
-    const reader = response.body.getReader();
-    const chunks = [];
-    let loadedBytes = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        break;
-      }
-
-      chunks.push(value);
-      loadedBytes += value.byteLength;
-      updateLoadProgress(loadedBytes, totalBytes);
-    }
-
-    const buffer = new Uint8Array(loadedBytes);
-    let offset = 0;
-
-    for (const chunk of chunks) {
-      buffer.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-
-    updateLoadProgress(loadedBytes, totalBytes);
-    return buffer.buffer;
-  };
+  // Thin wrapper around executeModelLoad() in monolith/model-loader.js.
+  // The loader module owns the full pipeline: progress bar, streaming,
+  // GLTF parsing, material application, and the 200ms swap timeout.
+  // See docs/agents/loadmodel.md for the extraction plan.
 
   const loadModel = async (index, { showProgressIfUncached = false } = {}) => {
     if (!loaderRef.current || index === stateRef.current.currentModelIndex) return;
     stateRef.current.currentModelIndex = index;
     syncEffectSnapshot({ triggerGlitch: true });
-    gl.domElement.style.opacity = '0';
-    overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, -1);
 
-    const entry = currentModels()[index];
-    const def = currentSetDef();
-    const cacheKey = entry.path;
-
-    if (modelCacheRef.current.has(cacheKey)) {
-      hideLoadProgress({ immediate: true });
-      const cached = modelCacheRef.current.get(cacheKey);
-      materialManagerRef.current?.applyModelMaterials(
-        cached.model,
-        def,
-        stateRef.current.currentSetIndex,
-        index,
-        stateRef.current.xrayMode,
-      );
-      // TODO: skip the fade for cached hits (no network round-trip). Track the
-      // timeout ID so it can be cleared on unmount (see root ToDo.md items #5, #8).
-      window.setTimeout(() => {
-        // Guard: if the user navigated to a different model during the 200ms
-        // delay, this callback is stale — bail out instead of swapping the
-        // wrong model in and desyncing overlays.
-        if (stateRef.current.currentModelIndex !== index) return;
-        swapModel(cached.model, entry.name, cached.animations);
-        overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, index);
-        revealScene();
-      }, 200);
-      return;
-    }
-
-    // Fetch the GLB through the persistent Cache API layer, then parse with
-    // GLTFLoader.  Using cachedFetch() + parse() instead of loader.load() lets
-    // us cache the raw binary response across sessions so revisits skip the
-    // network entirely.  DRACO decompression still runs via the DRACOLoader
-    // attached to the GLTFLoader instance.
-    const modelUrl = resolveAssetUrl(entry.path);
-    const shouldTrackProgress = (
-      showProgressIfUncached
-      && !(await hasCachedModel(modelUrl))
-    );
-
-    if (shouldTrackProgress) {
-      resetLoadProgress();
-    } else {
-      hideLoadProgress({ immediate: true });
-    }
-
-    cachedFetch(modelUrl)
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} loading ${entry.path}`);
-        }
-        return readModelArrayBuffer(response, shouldTrackProgress);
-      })
-      .then((buffer) => {
-        loaderRef.current.parse(
-          buffer,
-          // resourcePath — tells the parser where to resolve relative
-          // references (textures, etc.) within the GLB
-          resolveAssetUrl(entry.path.substring(0, entry.path.lastIndexOf('/') + 1)),
-          (gltf) => {
-            if (shouldTrackProgress) {
-              hideLoadProgress();
-            }
-
-            const model = gltf.scene;
-            const animations = gltf.animations;
-
-            materialManagerRef.current?.normalizeModelTransform(model, def, index);
-            materialManagerRef.current?.applyModelTextureFiltering(model);
-            materialManagerRef.current?.applyModelMaterials(
-              model,
-              def,
-              stateRef.current.currentSetIndex,
-              index,
-              stateRef.current.xrayMode,
-            );
-
-            modelCacheRef.current.set(cacheKey, { model, animations });
-            // TODO: track this timeout ID and clear it in the cleanup to prevent
-            // stale DOM updates after unmount (see root ToDo.md #8).
-            window.setTimeout(() => {
-              // Guard: if the user navigated away during the 200ms delay, skip.
-              if (stateRef.current.currentModelIndex !== index) return;
-              swapModel(model, entry.name, animations);
-              overlaysRef.current?.updateTextVisibility(stateRef.current.currentSetIndex, index);
-              revealScene();
-            }, 200);
-          },
-          (error) => {
-            console.error('Failed to parse model', entry.path, error);
-            gl.domElement.style.opacity = '1';
-            showLoadError(entry.name);
-          },
-        );
-      })
-      .catch((error) => {
-        console.error('Failed to load model', entry.path, error);
-        gl.domElement.style.opacity = '1';
-        showLoadError(entry.name);
-      });
+    await executeModelLoad({
+      index,
+      showProgressIfUncached,
+      entry: currentModels()[index],
+      def: currentSetDef(),
+      setIndex: stateRef.current.currentSetIndex,
+      xrayMode: stateRef.current.xrayMode,
+      cacheKey: currentModels()[index].path,
+      modelCache: modelCacheRef.current,
+      loader: loaderRef.current,
+      progress: progressRef.current,
+      materialManager: materialManagerRef.current,
+      getCurrentModelIndex: () => stateRef.current.currentModelIndex,
+      onSwapModel: swapModel,
+      onUpdateOverlays: (si, mi) => overlaysRef.current?.updateTextVisibility(si, mi),
+      onRevealScene: revealScene,
+      canvasDom: gl.domElement,
+    });
   };
 
   // ── Mode switching ────────────────────────────────────────────────────────────────
@@ -769,6 +594,7 @@ function MonolithScene() {
       scene.background = null;
       dracoLoader.dispose();
       mixerRef.current?.stopAllAction();
+      clearPendingTimeouts();
     };
     // camera, gl, and scene are stable R3F singletons — this runs once on mount.
   }, [camera, gl, scene]);
