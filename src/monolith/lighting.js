@@ -326,104 +326,131 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     }
   }
 
-  // ── Scene lighting style effects ───────────────────────────────────────────
+  // ── Scene lighting styles ──────────────────────────────────────────────────
   // Each entry corresponds to a SET_DEFS.lightingStyle value.
   // Called every frame by updateSceneLighting() after resetAllLights().
-  const sceneLightingEffects = {
-    neon: ({ nowMs }) => {
-      const angle = nowMs * 0.0004;
-      ambient.color.set(0xcc44ff);
-      ambient.intensity = 1.0;
-      warmLight.visible = true;
-      coolLight.visible = true;
-      warmLight.color.set(0xff1493);
-      coolLight.color.set(0x8800ff);
-      warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
-      coolLight.position.set(Math.cos(angle + Math.PI) * 4, 2, Math.sin(angle + Math.PI) * 4);
-      warmLight.intensity = 2;
-      coolLight.intensity = 2;
+  const sceneLightingStyles = {
+    neon: {
+      animated: true,
+      heroSpotlightIntensity: 5.5,
+      apply: ({ nowMs }) => {
+        const angle = nowMs * 0.0004;
+        ambient.color.set(0xcc44ff);
+        ambient.intensity = 1.0;
+        warmLight.visible = true;
+        coolLight.visible = true;
+        warmLight.color.set(0xff1493);
+        coolLight.color.set(0x8800ff);
+        warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
+        coolLight.position.set(Math.cos(angle + Math.PI) * 4, 2, Math.sin(angle + Math.PI) * 4);
+        warmLight.intensity = 2;
+        coolLight.intensity = 2;
+      },
     },
 
-    splitTone: ({ nowMs }) => {
-      const angle = nowMs * 0.0003;
-      warmLight.visible = true;
-      coolLight.visible = true;
-      warmLight.color.set(0xff8844);
-      coolLight.color.set(0x4488ff);
-      warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
-      coolLight.position.set(Math.cos(angle + Math.PI) * 4, 3, Math.sin(angle + Math.PI) * 4);
-      ambient.intensity = 0.3;
-      warmLight.intensity = 1.5;
-      coolLight.intensity = 1.5;
+    splitTone: {
+      animated: true,
+      heroSpotlightIntensity: 5.5,
+      apply: ({ nowMs }) => {
+        const angle = nowMs * 0.0003;
+        warmLight.visible = true;
+        coolLight.visible = true;
+        warmLight.color.set(0xff8844);
+        coolLight.color.set(0x4488ff);
+        warmLight.position.set(Math.cos(angle) * 4, 3, Math.sin(angle) * 4);
+        coolLight.position.set(Math.cos(angle + Math.PI) * 4, 3, Math.sin(angle + Math.PI) * 4);
+        ambient.intensity = 0.3;
+        warmLight.intensity = 1.5;
+        coolLight.intensity = 1.5;
+      },
     },
 
-    dualRingBright: ({ nowMs }) => {
-      ambient.intensity = 0.4;
-      animateDirectionalRingPair({ nowMs, intensityScale: 6 });
+    dualRingBright: {
+      animated: true,
+      heroSpotlightIntensity: 0,
+      apply: ({ nowMs }) => {
+        ambient.intensity = 0.4;
+        animateDirectionalRingPair({ nowMs, intensityScale: 6 });
+      },
     },
 
-    dualRing: ({ nowMs }) => {
-      ambient.intensity = 0.2;
-      animateDirectionalRingPair({ nowMs, intensityScale: 3 });
+    dualRing: {
+      animated: true,
+      heroSpotlightIntensity: 0,
+      apply: ({ nowMs }) => {
+        ambient.intensity = 0.2;
+        animateDirectionalRingPair({ nowMs, intensityScale: 3 });
+      },
     },
 
-    singleRing: ({ nowMs }) => {
-      ambient.intensity = 0.05;
-      animateSingleDirectionalRing({ nowMs, intensityScale: 4 });
+    singleRing: {
+      animated: true,
+      heroSpotlightIntensity: 0,
+      apply: ({ nowMs }) => {
+        ambient.intensity = 0.05;
+        animateSingleDirectionalRing({ nowMs, intensityScale: 4 });
+      },
     },
 
-    streetlightSlow: ({ nowMs }) => {
-      ambient.intensity = 0.5;
-      animateStreetlights({
-        nowMs,
-        speed: 0.00012,
-        far: 20,
-        near: -15,
-        intensityScale: 20,
-        falloffDivisor: 25,
-      });
+    streetlightSlow: {
+      animated: true,
+      heroSpotlightIntensity: 5.5,
+      apply: ({ nowMs }) => {
+        ambient.intensity = 0.5;
+        animateStreetlights({
+          nowMs,
+          speed: 0.00012,
+          far: 20,
+          near: -15,
+          intensityScale: 20,
+          falloffDivisor: 25,
+        });
+      },
     },
 
-    streetlight: ({ nowMs }) => {
-      ambient.intensity = 0.5;
-      animateStreetlights({
-        nowMs,
-        speed: 0.0008,
-        far: 15,
-        near: -10,
-        intensityScale: 20,
-        falloffDivisor: 18,
-      });
+    streetlight: {
+      animated: true,
+      heroSpotlightIntensity: 5.5,
+      apply: ({ nowMs }) => {
+        ambient.intensity = 0.5;
+        animateStreetlights({
+          nowMs,
+          speed: 0.0008,
+          far: 15,
+          near: -10,
+          intensityScale: 20,
+          falloffDivisor: 18,
+        });
+      },
     },
 
-    ambientBright: () => {
-      ambient.intensity = 8.4;
-      dirRingLight.visible = true;
-      dirRingLight.position.set(0, 10, 2);
-      dirRingLight.target.position.set(0, 0, 0);
-      dirRingLight.intensity = 6;
+    ambientBright: {
+      animated: false,
+      heroSpotlightIntensity: 0,
+      apply: () => {
+        ambient.intensity = 8.4;
+        dirRingLight.visible = true;
+        dirRingLight.position.set(0, 10, 2);
+        dirRingLight.target.position.set(0, 0, 0);
+        dirRingLight.intensity = 6;
+      },
     },
 
-    ambientOnly: () => {
-      ambient.intensity = 2.8;
+    ambientOnly: {
+      animated: false,
+      heroSpotlightIntensity: 0,
+      apply: () => {
+        ambient.intensity = 2.8;
+      },
     },
 
-    pointRing: ({ nowMs }) => {
-      animatePointRingPair({ nowMs, intensityScale: 5 });
+    pointRing: {
+      animated: true,
+      heroSpotlightIntensity: 0,
+      apply: ({ nowMs }) => {
+        animatePointRingPair({ nowMs, intensityScale: 5 });
+      },
     },
-  };
-
-  const sceneLightingConfigs = {
-    neon: { animated: true, heroSpotlightIntensity: 5.5 },
-    splitTone: { animated: true, heroSpotlightIntensity: 5.5 },
-    dualRingBright: { animated: true, heroSpotlightIntensity: 0 },
-    dualRing: { animated: true, heroSpotlightIntensity: 0 },
-    singleRing: { animated: true, heroSpotlightIntensity: 0 },
-    streetlightSlow: { animated: true, heroSpotlightIntensity: 5.5 },
-    streetlight: { animated: true, heroSpotlightIntensity: 5.5 },
-    ambientBright: { animated: false, heroSpotlightIntensity: 0 },
-    ambientOnly: { animated: false, heroSpotlightIntensity: 0 },
-    pointRing: { animated: true, heroSpotlightIntensity: 0 },
   };
 
   // ── Per-frame update entry points ───────────────────────────────────────────
@@ -453,19 +480,18 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
 
   function updateSceneLighting({ forceRefresh = false } = {}) {
     const style = getLightingStyle();
-    const effect = sceneLightingEffects[style] ?? sceneLightingEffects.pointRing;
-    const config = sceneLightingConfigs[style] ?? sceneLightingConfigs.pointRing;
+    const styleDef = sceneLightingStyles[style] ?? sceneLightingStyles.pointRing;
     const ambientOverrideSignature = getAmbientOverrideSignature();
     const staticSceneSignature = `${style}:${ambientOverrideSignature}`;
 
-    if (!forceRefresh && !config.animated && lastStaticSceneSignature === staticSceneSignature) {
+    if (!forceRefresh && !styleDef.animated && lastStaticSceneSignature === staticSceneSignature) {
       return;
     }
 
-    const monolith = config.heroSpotlightIntensity > 0 ? getMonolith() : null;
+    const monolith = styleDef.heroSpotlightIntensity > 0 ? getMonolith() : null;
     const nowMs = Date.now();
 
-    if (config.animated) {
+    if (styleDef.animated) {
       lastStaticSceneSignature = null;
     } else {
       lastStaticSceneSignature = staticSceneSignature;
@@ -477,9 +503,9 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
       heroSpotLight.visible = true;
       setHeroSpotlightTarget(monolith);
     }
-    effect({ monolith, nowMs, style });
+    styleDef.apply({ monolith, nowMs, style });
 
-    heroSpotLight.intensity = config.heroSpotlightIntensity;
+    heroSpotLight.intensity = styleDef.heroSpotlightIntensity;
 
     applyAmbientOverrides();
     applyCinematicAmbientOverride();
