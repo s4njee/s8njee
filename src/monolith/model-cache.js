@@ -21,7 +21,7 @@
  * Cache API storage name. Bump the version suffix to invalidate all cached
  * models (e.g. after re-exporting assets with different compression).
  */
-const CACHE_NAME = 'monolith-models-v1';
+const CACHE_NAME = 'monolith-models-v2';
 
 /**
  * Opens (or creates) the named Cache.

@@ -107,6 +107,76 @@ This is the recommended order for the next passes.
 - Move particle animation further toward GPU-driven behavior
 - Add reactive DPR / display-quality adjustment
 
+## Performance on Older / Low-End Machines
+
+The current renderer always runs at full fidelity — every effect, all 5000 particles, max anisotropy, unbounded geometry. On older GPUs or integrated graphics this tanks the frame rate. The ideas below are sorted roughly by impact-to-effort ratio.
+
+### Adaptive Quality / Auto-Detect
+
+- **GPU tier detection at startup:**
+  Use a lightweight probe (e.g., `detect-gpu` or a manual `renderer.capabilities` check) to classify the device into tiers (low / mid / high). Gate expensive features behind the tier so older machines get a playable baseline without manual tweaking.
+
+- **Dynamic DPR scaling:**
+  Currently DPR is fixed at mount (`Math.min(devicePixelRatio, 2)`). Instead, monitor frame time and drop the canvas resolution (e.g., from 2× → 1.5× → 1×) when frames consistently exceed 16ms. Restore when headroom returns. This is the single biggest lever for GPU-bound scenes.
+
+- **FPS-adaptive effect stripping:**
+  If the rolling average FPS drops below a threshold (e.g., 30), automatically disable the most expensive post-processing passes first (bloom → chromatic aberration → glitch), then reduce particle count, then lower shadow quality. Re-enable when FPS recovers. Expose a "quality" toggle (Low / Medium / High / Auto) in the GUI.
+
+### Geometry & Draw Calls
+
+- **Level of Detail (LOD):**
+  Ship two or three decimated versions of each `.glb` (e.g., full / 50% / 25% triangle counts). Swap based on GPU tier or camera distance using `THREE.LOD`. This reduces vertex processing and memory bandwidth on weak GPUs without changing the visual at typical viewing distances.
+
+- **Geometry instancing for repeated meshes:**
+  If any sets share identical sub-meshes (weapons, accessories), use `InstancedMesh` to batch draw calls.
+
+- **Frustum culling awareness:**
+  Three.js frustum-culls by default, but only if bounding volumes are correct. After DRACO decompression, call `geometry.computeBoundingSphere()` / `computeBoundingBox()` to make sure culling actually kicks in. Verify with `renderer.info.render.calls` in the diagnostics overlay.
+
+### Particles & Lighting
+
+- **Tiered particle count:**
+  Drop from 5000 → 1000 (or fewer) on low-tier devices. The `particleCount` is already a constant in `lighting.js` — make it a function of GPU tier.
+
+- **Reduce glow light count:**
+  6 dynamic `PointLight`s (one per nearest particle) are expensive on older hardware. On low tier, drop to 2–3 lights or replace with a single ambient approximation.
+
+- **Skip color/light updates more aggressively:**
+  Currently colors and glow lights update every 4 frames. On low-end, push this to every 8–12 frames, or freeze entirely when frame budget is tight.
+
+### Post-Processing
+
+- **Half-resolution effect passes:**
+  Bloom and chromatic aberration can run at half the canvas resolution with minimal perceptual loss. Pass a smaller `renderTarget` size to the effect composer on low-tier devices.
+
+- **Disable expensive effects by default on low tier:**
+  X-ray, glitch, thermal vision, and pixel mosaic are visually rich but shader-heavy. Start with them disabled on detected low-end hardware; let the user opt in.
+
+- **Simplify the x-ray shader:**
+  The custom GLSL injects scanlines, noise, rim glow, and tear distortion per fragment. Provide a "lite" variant that skips noise sampling and tear distortion for low-end devices.
+
+### Textures & Memory
+
+- **Compressed textures (KTX2 / Basis):**
+  DRACO compresses geometry but textures are still uncompressed in the GLB. Serving KTX2 (with Basis Universal) reduces VRAM usage and upload time significantly — especially important on 2–4 GB mobile/integrated GPUs.
+
+- **Cap texture anisotropy on low-end:**
+  `applyModelTextureFiltering` currently sets anisotropy to `getMaxAnisotropy()`. On low-tier devices, cap it at 4× or 2× to reduce texture sampling cost.
+
+- **Mipmap generation:**
+  Ensure all textures have mipmaps generated (`texture.generateMipmaps = true`). This reduces aliasing *and* improves cache performance when textures are viewed at less than full size.
+
+### Loading & Perceived Performance
+
+- **Progressive model display:**
+  Show a low-poly silhouette or bounding-box placeholder immediately while the full model streams in. This matters most on slow networks + slow GPUs where both download and parse time are long.
+
+- **Defer non-visible set prewarming:**
+  `prewarmCache()` fetches the next model, but on low-end machines the parse cost can stall the current frame. Gate prewarming behind `requestIdleCallback` or skip it entirely when FPS is low.
+
+- **Lazy-load post-processing:**
+  Import the effect composer and individual passes only when first needed (e.g., user presses the bloom hotkey). This reduces initial JS parse/compile time on slower CPUs.
+
 ## Fresh Ideas
 
 These are not from the original list, but they fit the current Monolith architecture well.
