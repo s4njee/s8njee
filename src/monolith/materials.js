@@ -100,7 +100,12 @@ export function createMaterialManager(renderer) {
     if (!('onBeforeCompile' in mat)) return;
     if (mat.userData.xrayShaderApplied) return;
 
+    // Chain: call any previously-registered onBeforeCompile (e.g. particle glow)
+    // before injecting x-ray code so both shaders coexist in one program.
+    const prevOnBeforeCompile = mat.onBeforeCompile ?? null;
+
     mat.onBeforeCompile = (shader) => {
+      if (prevOnBeforeCompile) prevOnBeforeCompile(shader);
       shader.uniforms.xrayRimColor = { value: XRAY_RIM_COLOR.clone() };
       shader.uniforms.xrayRimStrength = { value: XRAY_RIM_STRENGTH };
       shader.uniforms.xrayRimPower = { value: XRAY_RIM_POWER };

@@ -23,12 +23,12 @@
 export const SET_DEFS = [
   {
     models: [
-      { key: '1', name: 'Astolfo', path: '/set1/astolfo.glb' },
-      { key: '2', name: 'Astolfo 2', path: '/set1/astolfo2.glb' },
-      { key: '3', name: 'Astolfo 3', path: '/set1/astolfo3.glb' },
-      { key: '4', name: 'Astolfo 4', path: '/set1/astolfo4.glb' },
-      { key: '5', name: 'Astolfo 6', path: '/set1/astolfo6.glb' },
-      { key: '6', name: 'Angel Devil', path: '/set1/angeldevil1.glb' },
+      { key: '1', name: 'Astolfo', path: '/set1/astolfo.ktx2.glb', mediumPath: '/set1/astolfo.medium.ktx2.glb', lowPath: '/set1/astolfo.low.ktx2.glb' },
+      { key: '2', name: 'Astolfo 2', path: '/set1/astolfo2.ktx2.glb', mediumPath: '/set1/astolfo2.medium.ktx2.glb', lowPath: '/set1/astolfo2.low.ktx2.glb' },
+      { key: '3', name: 'Astolfo 3', path: '/set1/astolfo3.ktx2.glb', mediumPath: '/set1/astolfo3.medium.ktx2.glb', lowPath: '/set1/astolfo3.low.ktx2.glb' },
+      { key: '4', name: 'Astolfo 4', path: '/set1/astolfo4.ktx2.glb', mediumPath: '/set1/astolfo4.medium.ktx2.glb', lowPath: '/set1/astolfo4.low.ktx2.glb' },
+      { key: '5', name: 'Astolfo 6', path: '/set1/astolfo6.ktx2.glb', mediumPath: '/set1/astolfo6.medium.ktx2.glb', lowPath: '/set1/astolfo6.low.ktx2.glb' },
+      { key: '6', name: 'Angel Devil', path: '/set1/angeldevil1.ktx2.glb', mediumPath: '/set1/angeldevil1.medium.ktx2.glb', lowPath: '/set1/angeldevil1.low.ktx2.glb' },
     ],
     buttonLabel: '1',
     lightingStyle: 'neon',
@@ -36,11 +36,11 @@ export const SET_DEFS = [
   },
   {
     models: [
-      { key: '1', name: 'Shinji', path: '/set2/shinji.glb' },
-      { key: '2', name: 'Misato', path: '/set2/misato.glb' },
-      { key: '3', name: 'Shinji 3', path: '/set2/shinji3.glb' },
-      { key: '4', name: 'Shinji 4', path: '/set2/shinji4.glb' },
-      { key: '5', name: 'Asushin', path: '/set2/asushin.glb' },
+      { key: '1', name: 'Shinji', path: '/set2/shinji.ktx2.glb', mediumPath: '/set2/shinji.medium.ktx2.glb', lowPath: '/set2/shinji.low.ktx2.glb' },
+      { key: '2', name: 'Misato', path: '/set2/misato.ktx2.glb', mediumPath: '/set2/misato.medium.ktx2.glb', lowPath: '/set2/misato.low.ktx2.glb' },
+      { key: '3', name: 'Shinji 3', path: '/set2/shinji3.ktx2.glb', mediumPath: '/set2/shinji3.medium.ktx2.glb', lowPath: '/set2/shinji3.low.ktx2.glb' },
+      { key: '4', name: 'Shinji 4', path: '/set2/shinji4.ktx2.glb', mediumPath: '/set2/shinji4.medium.ktx2.glb', lowPath: '/set2/shinji4.low.ktx2.glb' },
+      { key: '5', name: 'Asushin', path: '/set2/asushin.ktx2.glb', mediumPath: '/set2/asushin.medium.ktx2.glb', lowPath: '/set2/asushin.low.ktx2.glb' },
     ],
     buttonLabel: '2',
     lightingStyle: 'splitTone',
@@ -48,13 +48,13 @@ export const SET_DEFS = [
   },
   {
     models: [
-      { key: '1', name: 'EVA-01 Running', path: '/set3/eva01running.glb' },
-      { key: '2', name: 'EVA-02 Running', path: '/set3/eva02running.glb' },
-      { key: '3', name: 'Angel Walk', path: '/set3/angelwalk.glb' },
-      { key: '4', name: 'EVA-01 Running 2', path: '/set3/eva01running2.glb' },
-      { key: '5', name: 'EVA-02 Running 2', path: '/set3/eva02running2.glb' },
-      { key: '6', name: 'EVA-01', path: '/set3/eva01.glb' },
-      { key: '7', name: 'EVA-02', path: '/set3/eva02.glb' },
+      { key: '1', name: 'EVA-01 Running', path: '/set3/eva01running.ktx2.glb', mediumPath: '/set3/eva01running.medium.ktx2.glb', lowPath: '/set3/eva01running.low.ktx2.glb' },
+      { key: '2', name: 'EVA-02 Running', path: '/set3/eva02running.ktx2.glb', mediumPath: '/set3/eva02running.medium.ktx2.glb', lowPath: '/set3/eva02running.low.ktx2.glb' },
+      { key: '3', name: 'Angel Walk', path: '/set3/angelwalk.ktx2.glb', mediumPath: '/set3/angelwalk.medium.ktx2.glb', lowPath: '/set3/angelwalk.low.ktx2.glb' },
+      { key: '4', name: 'EVA-01 Running 2', path: '/set3/eva01running2.ktx2.glb', mediumPath: '/set3/eva01running2.medium.ktx2.glb', lowPath: '/set3/eva01running2.low.ktx2.glb' },
+      { key: '5', name: 'EVA-02 Running 2', path: '/set3/eva02running2.ktx2.glb', mediumPath: '/set3/eva02running2.medium.ktx2.glb', lowPath: '/set3/eva02running2.low.ktx2.glb' },
+      { key: '6', name: 'EVA-01', path: '/set3/eva01.ktx2.glb', mediumPath: '/set3/eva01.medium.ktx2.glb', lowPath: '/set3/eva01.low.ktx2.glb' },
+      { key: '7', name: 'EVA-02', path: '/set3/eva02.ktx2.glb', mediumPath: '/set3/eva02.medium.ktx2.glb', lowPath: '/set3/eva02.low.ktx2.glb' },
     ],
     buttonLabel: '3',
     lightingStyle: 'dualRing',
@@ -72,10 +72,10 @@ export const SET_DEFS = [
   },
   {
     models: [
-      { key: '1', name: 'X-Wing', path: '/set4/1xwing.glb' },
-      { key: '2', name: 'TIE Fighter', path: '/set4/2tie.glb' },
-      { key: '3', name: 'Star Destroyer', path: '/set4/3sd.glb' },
-      { key: '4', name: 'R90', path: '/set4/zr90.glb' },
+      { key: '1', name: 'X-Wing', path: '/set4/1xwing.ktx2.glb', mediumPath: '/set4/1xwing.medium.ktx2.glb', lowPath: '/set4/1xwing.low.ktx2.glb' },
+      { key: '2', name: 'TIE Fighter', path: '/set4/2tie.ktx2.glb', mediumPath: '/set4/2tie.medium.ktx2.glb', lowPath: '/set4/2tie.low.ktx2.glb' },
+      { key: '3', name: 'Star Destroyer', path: '/set4/3sd.ktx2.glb', mediumPath: '/set4/3sd.medium.ktx2.glb', lowPath: '/set4/3sd.low.ktx2.glb' },
+      { key: '4', name: 'R90', path: '/set4/zr90.ktx2.glb', mediumPath: '/set4/zr90.medium.ktx2.glb', lowPath: '/set4/zr90.low.ktx2.glb' },
     ],
     buttonLabel: '4',
     lightingStyle: 'pointRing',
@@ -85,8 +85,8 @@ export const SET_DEFS = [
   },
   {
     models: [
-      { key: '1', name: 'Mahoraga', path: '/set5/mahoraga.glb' },
-      { key: '2', name: 'Denji', path: '/set5/denji.glb' },
+      { key: '1', name: 'Mahoraga', path: '/set5/mahoraga.ktx2.glb', mediumPath: '/set5/mahoraga.medium.ktx2.glb', lowPath: '/set5/mahoraga.low.ktx2.glb' },
+      { key: '2', name: 'Denji', path: '/set5/denji.ktx2.glb', mediumPath: '/set5/denji.medium.ktx2.glb', lowPath: '/set5/denji.low.ktx2.glb' },
     ],
     buttonLabel: '✱',
     lightingStyle: 'streetlightSlow',
@@ -94,8 +94,8 @@ export const SET_DEFS = [
   },
   {
     models: [
-      { key: '1', name: 'Sanji', path: '/set6/sanji.glb' },
-      { key: '2', name: 'Sanji 2', path: '/set6/sanji2.glb' },
+      { key: '1', name: 'Sanji', path: '/set6/sanji.ktx2.glb', mediumPath: '/set6/sanji.medium.ktx2.glb', lowPath: '/set6/sanji.low.ktx2.glb' },
+      { key: '2', name: 'Sanji 2', path: '/set6/sanji2.ktx2.glb', mediumPath: '/set6/sanji2.medium.ktx2.glb', lowPath: '/set6/sanji2.low.ktx2.glb' },
     ],
     defaultModel: 1,
     hidden: true,
@@ -109,11 +109,11 @@ export const SET_DEFS = [
   },
   {
     models: [
-      { key: '1', name: 'Rimuru', path: '/set8/rimuru.glb' },
-      { key: '2', name: 'Diablo', path: '/set8/diablo.glb' },
-      { key: '3', name: 'Veldora', path: '/set8/veldora.glb' },
-      { key: '4', name: 'Rimuru 2', path: '/set8/rimuru2.glb' },
-      { key: '5', name: 'Rimuru 3', path: '/set8/rimuru3.glb' },
+      { key: '1', name: 'Rimuru', path: '/set8/rimuru.ktx2.glb', mediumPath: '/set8/rimuru.medium.ktx2.glb', lowPath: '/set8/rimuru.low.ktx2.glb' },
+      { key: '2', name: 'Diablo', path: '/set8/diablo.ktx2.glb', mediumPath: '/set8/diablo.medium.ktx2.glb', lowPath: '/set8/diablo.low.ktx2.glb' },
+      { key: '3', name: 'Veldora', path: '/set8/veldora.ktx2.glb', mediumPath: '/set8/veldora.medium.ktx2.glb', lowPath: '/set8/veldora.low.ktx2.glb' },
+      { key: '4', name: 'Rimuru 2', path: '/set8/rimuru2.ktx2.glb', mediumPath: '/set8/rimuru2.medium.ktx2.glb', lowPath: '/set8/rimuru2.low.ktx2.glb' },
+      { key: '5', name: 'Rimuru 3', path: '/set8/rimuru3.ktx2.glb', mediumPath: '/set8/rimuru3.medium.ktx2.glb', lowPath: '/set8/rimuru3.low.ktx2.glb' },
     ],
     defaultModel: 3,
     hidden: true,
@@ -125,11 +125,11 @@ export const SET_DEFS = [
   },
   {
     models: [
-      { key: '1', name: 'Asuka', path: '/misc/asuka.glb' },
-      { key: '2', name: 'Akira', path: '/misc/akira.glb' },
-      { key: '3', name: 'Ubel', path: '/misc/ubel.glb' },
-      { key: '4', name: 'Wing Zero', path: '/misc/wingzero.glb' },
-      { key: '5', name: 'Emil', path: '/misc/emil.glb' },
+      { key: '1', name: 'Asuka', path: '/misc/asuka.ktx2.glb', mediumPath: '/misc/asuka.medium.ktx2.glb', lowPath: '/misc/asuka.low.ktx2.glb' },
+      { key: '2', name: 'Akira', path: '/misc/akira.ktx2.glb', mediumPath: '/misc/akira.medium.ktx2.glb', lowPath: '/misc/akira.low.ktx2.glb' },
+      { key: '3', name: 'Ubel', path: '/misc/ubel.ktx2.glb', mediumPath: '/misc/ubel.medium.ktx2.glb', lowPath: '/misc/ubel.low.ktx2.glb' },
+      { key: '4', name: 'Wing Zero', path: '/misc/wingzero.ktx2.glb', mediumPath: '/misc/wingzero.medium.ktx2.glb', lowPath: '/misc/wingzero.low.ktx2.glb' },
+      { key: '5', name: 'Emil', path: '/misc/emil.ktx2.glb', mediumPath: '/misc/emil.medium.ktx2.glb', lowPath: '/misc/emil.low.ktx2.glb' },
     ],
     hidden: true,
     hotkey: '0',

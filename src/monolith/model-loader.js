@@ -140,6 +140,26 @@ async function readModelArrayBuffer(response, progress, trackProgress) {
   return buffer.buffer;
 }
 
+// ── LOD resolution ───────────────────────────────────────────────────────────
+
+/**
+ * Resolves the appropriate model path for the given quality tier.
+ *
+ * @param {Object} entry — the model definition from SET_DEFS
+ * @param {string} qualityTier — 'high' or 'low'
+ * @returns {string}
+ */
+export function getModelPathForQuality(entry, qualityTier) {
+  if (qualityTier === 'low') {
+    return entry.piPath ?? entry.lowPath ?? entry.mediumPath ?? entry.path;
+  }
+  if (qualityTier === 'medium') {
+    return entry.mediumPath ?? entry.path;
+  }
+
+  return entry.path;
+}
+
 // ── Main load function ───────────────────────────────────────────────────────
 
 /**

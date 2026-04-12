@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
 import { createGuiControls, createDefaultGuiParams } from './monolith/gui.js';
 import { createLightingRig } from './monolith/lighting.js';
@@ -12,8 +14,9 @@ import { createOverlays } from './monolith/overlays.js';
 import { SET_DEFS } from './monolith/set-defs.js';
 import { createUI } from './monolith/ui.js';
 import { resolveAssetUrl } from './monolith/asset-url.js';
-import { executeModelLoad, clearPendingTimeouts } from './monolith/model-loader.js';
+import { executeModelLoad, clearPendingTimeouts, getModelPathForQuality } from './monolith/model-loader.js';
 import SafeCanvas from '../../../src/shared/webgl/SafeCanvas.tsx';
+import { useFrameRate } from '../../../src/shared/performance/index.ts';
 import {
   SharedEffectStack,
   createSharedEffectHotkeyListener,
@@ -132,8 +135,9 @@ function createMonolithEffectSnapshot(guiParams, state, glitchTriggerToken) {
   };
 }
 
-function MonolithScene() {
+function MonolithScene({ modelQuality }) {
   const { gl, scene, camera } = useThree();
+  const { qualityTier } = useFrameRate();
 
   // ── Refs ────────────────────────────────────────────────────────────────────
   // All mutable scene values live in refs rather than state so they can be
@@ -315,19 +319,26 @@ function MonolithScene() {
   // GLTF parsing, material application, and the 200ms swap timeout.
   // See docs/agents/loadmodel.md for the extraction plan.
 
-  const loadModel = async (index, { showProgressIfUncached = false } = {}) => {
-    if (!loaderRef.current || index === stateRef.current.currentModelIndex) return;
+  const loadModel = async (index, { showProgressIfUncached = false, forceReload = false } = {}) => {
+    if (!loaderRef.current || (!forceReload && index === stateRef.current.currentModelIndex)) return;
     stateRef.current.currentModelIndex = index;
     syncEffectSnapshot({ triggerGlitch: true });
+
+    const entry = currentModels()[index];
+    const resolvedTier = modelQuality === 'auto' ? qualityTier : modelQuality;
+    const resolvedPath = getModelPathForQuality(entry, resolvedTier);
 
     await executeModelLoad({
       index,
       showProgressIfUncached,
-      entry: currentModels()[index],
+      entry: {
+        ...entry,
+        path: resolvedPath,
+      },
       def: currentSetDef(),
       setIndex: stateRef.current.currentSetIndex,
       xrayMode: stateRef.current.xrayMode,
-      cacheKey: currentModels()[index].path,
+      cacheKey: resolvedPath,
       modelCache: modelCacheRef.current,
       loader: loaderRef.current,
       progress: progressRef.current,
@@ -340,17 +351,22 @@ function MonolithScene() {
     });
   };
 
+  useEffect(() => {
+    if (stateRef.current.currentModelIndex > -1) {
+      loadModel(stateRef.current.currentModelIndex, { forceReload: true });
+    }
+  }, [qualityTier, modelQuality]);
+
   // ── Mode switching ────────────────────────────────────────────────────────────────
 
   const switchLightingMode = (mode) => {
     stateRef.current.lightingMode = mode;
+    const particlesOn = mode === LIGHTING_MODE_PARTICLES;
     if (lightingRigRef.current) {
-      lightingRigRef.current.particles.visible = mode === LIGHTING_MODE_PARTICLES;
-      if (mode !== LIGHTING_MODE_PARTICLES) lightingRigRef.current.clearParticleGlow();
+      lightingRigRef.current.setParticleLightingEnabled(particlesOn);
     }
     guiParamsRef.current.lightingMode = getLightingModeLabel(mode);
     applySceneAppearance();
-    markDisplayedModelMaterialsDirty();
     guiControlsRef.current?.syncGuiDisplay();
     uiRef.current?.updateModeButtons();
   };
@@ -517,8 +533,14 @@ function MonolithScene() {
     dracoLoader.setDecoderPath(resolveAssetUrl('/draco/'));
     dracoLoader.preload();
 
+    const ktx2Loader = new KTX2Loader();
+    ktx2Loader.setTranscoderPath(resolveAssetUrl('/basis/'));
+    ktx2Loader.detectSupport(gl);
+
     loaderRef.current = new GLTFLoader();
     loaderRef.current.setDRACOLoader(dracoLoader);
+    loaderRef.current.setKTX2Loader(ktx2Loader);
+    loaderRef.current.setMeshoptDecoder(MeshoptDecoder);
 
     const hotkeyMap = {};
     SET_DEFS.forEach((def, index) => {
@@ -624,6 +646,7 @@ function MonolithScene() {
       scene.environment = null;
       scene.background = null;
       dracoLoader.dispose();
+      ktx2Loader.dispose();
       mixerRef.current?.stopAllAction();
       clearPendingTimeouts();
     };
@@ -689,17 +712,17 @@ function MonolithScene() {
   return <SharedEffectStack {...effectSnapshot} />;
 }
 
-export default function MonolithCanvas() {
-  const dpr = useMemo(() => [1, Math.min(window.devicePixelRatio, 2)], []);
+export default function MonolithCanvas({ modelQuality = 'auto' }) {
+  const dpr = useMemo(() => [0.75, Math.min(window.devicePixelRatio, 1.5)], []);
 
   return (
     <SafeCanvas
       dpr={dpr}
-      rendererOptions={{ antialias: true, alpha: true }}
+      rendererOptions={{ antialias: false, alpha: true, powerPreference: 'high-performance' }}
       sceneLabel="Monolith"
     >
       <Suspense fallback={null}>
-        <MonolithScene />
+        <MonolithScene modelQuality={modelQuality} />
       </Suspense>
     </SafeCanvas>
   );
