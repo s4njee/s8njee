@@ -88,6 +88,20 @@ function updateLoadProgress(progress, loadedBytes, totalBytes) {
 
 // ── Streaming reader ─────────────────────────────────────────────────────────
 
+// Used when Content-Length is unavailable (e.g. Cloudflare compresses the
+// response and strips the header). Asymptotically approaches 90% so the bar
+// is always visibly moving during a long download.
+function startSimulatedProgress(progress) {
+  if (!progress) return () => {};
+  let current = 5;
+  progress.bar.style.width = `${current}%`;
+  const id = setInterval(() => {
+    current += (90 - current) * 0.05;
+    progress.bar.style.width = `${Math.round(current)}%`;
+  }, 150);
+  return () => clearInterval(id);
+}
+
 async function readModelArrayBuffer(response, progress, trackProgress) {
   if (!trackProgress) {
     return response.arrayBuffer();
@@ -96,7 +110,9 @@ async function readModelArrayBuffer(response, progress, trackProgress) {
   const totalBytes = Number.parseInt(response.headers.get('content-length') ?? '', 10);
 
   if (!response.body || !Number.isFinite(totalBytes)) {
+    const cancelSimulated = startSimulatedProgress(progress);
     const buffer = await response.arrayBuffer();
+    cancelSimulated();
     updateLoadProgress(progress, buffer.byteLength, Number.isFinite(totalBytes) ? totalBytes : 0);
     return buffer;
   }

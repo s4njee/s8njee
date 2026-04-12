@@ -66,13 +66,11 @@ export async function cachedFetch(url) {
   const response = await fetch(url);
 
   if (response.ok && cache) {
-    // Clone the response before caching — a Response body can only be consumed
-    // once, so we cache the clone and return the original.
-    try {
-      await cache.put(url, response.clone());
-    } catch {
-      // Cache storage full — silently ignore, the fetch still succeeds.
-    }
+    // Clone before caching. Do NOT await cache.put — awaiting it would
+    // consume the entire response body before returning, which prevents
+    // streaming progress tracking. The cache write runs in the background
+    // while the caller streams the original response body.
+    cache.put(url, response.clone()).catch(() => {});
   }
 
   return response;
