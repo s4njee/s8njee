@@ -713,7 +713,7 @@ function MonolithScene({ modelQuality }) {
 }
 
 export default function MonolithCanvas({ modelQuality = 'auto' }) {
-  const dpr = useMemo(() => [0.75, Math.min(window.devicePixelRatio, 1.5)], []);
+  const dpr = useMemo(() => [0.75, Math.min(window.devicePixelRatio, 2)], []);
 
   return (
     <SafeCanvas
