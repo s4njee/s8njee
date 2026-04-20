@@ -45,6 +45,8 @@ const CINEMATIC_BLOOM_INTENSITY_END = 1.2;
 const CINEMATIC_BLOOM_OSCILLATION_SPEED = 2.4;
 const SET3_INDEX = 2;
 const SET3_SPACEBAR_ANIMATION_SPEED = 1.5;
+const BEAT_BLOOM_BASE = 1.5;
+const BEAT_BLOOM_RANGE = 5.0;
 
 function mapMonolithBloomSettings(guiParams) {
   // Monolith's legacy sliders were tuned for UnrealBloomPass. Translate them
@@ -86,13 +88,9 @@ function createInitialMonolithState() {
 
 // ── Glitch logic ───────────────────────────────────────────────────────────────────────
 
-function canTriggerMonolithGlitch(state) {
-  return (
-    state.currentFx === SHARED_FX_CINEMATIC ||
-    state.currentFx === SHARED_FX_DATABEND ||
-    state.pixelMosaicEnabled ||
-    state.thermalVisionEnabled
-  );
+function canTriggerMonolithGlitch() {
+  // Always allow glitch bursts so every model/set swap gets an entrance glitch.
+  return true;
 }
 
 function createMonolithEffectSnapshot(guiParams, state, glitchTriggerToken) {
@@ -104,7 +102,7 @@ function createMonolithEffectSnapshot(guiParams, state, glitchTriggerToken) {
     barrelBlurOffsetX: guiParams.barrelBlurOffsetX,
     barrelBlurOffsetY: guiParams.barrelBlurOffsetY,
     bloomEnabled: guiParams.bloomEnabled,
-    bloomIntensity: state.cinematicBloomIntensityOverride ?? bloom.intensity,
+    bloomIntensity: state.cinematicBloomIntensityOverride ?? guiParams.beatBloomOverride ?? bloom.intensity,
     bloomRadius: bloom.radius,
     bloomSmoothing: bloom.smoothing,
     bloomThreshold: bloom.threshold,
@@ -117,7 +115,7 @@ function createMonolithEffectSnapshot(guiParams, state, glitchTriggerToken) {
     cinematicEnabled: state.currentFx === SHARED_FX_CINEMATIC,
     databendEnabled: state.currentFx === SHARED_FX_DATABEND,
     glitchDuration: guiParams.glitchDuration,
-    glitchEnabled: canTriggerMonolithGlitch(state),
+    glitchEnabled: true,
     glitchStrength: guiParams.glitchStrength,
     glitchTriggerToken,
     hue: guiParams.hue,
@@ -194,10 +192,12 @@ function MonolithScene({ modelQuality }) {
       stateRef.current.pendingLightingMode = null;
     }
     gl.domElement.style.opacity = '1';
+    // Fire the entrance glitch after the canvas is visible so the user sees it.
+    syncEffectSnapshot({ triggerGlitch: true });
   };
 
   const syncEffectSnapshot = ({ triggerGlitch = false } = {}) => {
-    if (triggerGlitch && canTriggerMonolithGlitch(stateRef.current)) {
+    if (triggerGlitch && canTriggerMonolithGlitch()) {
       glitchTriggerTokenRef.current += 1;
     }
 
@@ -322,7 +322,7 @@ function MonolithScene({ modelQuality }) {
   const loadModel = async (index, { showProgressIfUncached = false, forceReload = false } = {}) => {
     if (!loaderRef.current || (!forceReload && index === stateRef.current.currentModelIndex)) return;
     stateRef.current.currentModelIndex = index;
-    syncEffectSnapshot({ triggerGlitch: true });
+    syncEffectSnapshot();
 
     const entry = currentModels()[index];
     const resolvedTier = modelQuality === 'auto' ? qualityTier : modelQuality;
@@ -696,9 +696,28 @@ function MonolithScene({ modelQuality }) {
       guiParamsRef.current.saturation = 1;
     }
 
+    // ── Beat-reactive lighting ──────────────────────────────────────────────
+    const beatEnergy = uiRef.current?.getBeatEnergy() ?? 0;
+    lightingRigRef.current?.setBeatEnergy(beatEnergy);
+
+    // Pulse bloom intensity with the beat when music is playing.
+    // Only sync the effect snapshot when the bloom value changes noticeably
+    // (threshold of 0.05) to avoid triggering a React re-render every frame.
+    if (beatEnergy > 0 && stateRef.current.cinematicBloomIntensityOverride === null) {
+      const beatBloom = BEAT_BLOOM_BASE + beatEnergy * BEAT_BLOOM_RANGE;
+      const prev = guiParamsRef.current.beatBloomOverride ?? 0;
+      if (Math.abs(beatBloom - prev) > 0.02) {
+        guiParamsRef.current.beatBloomOverride = beatBloom;
+        syncEffectSnapshot();
+      }
+    } else if (guiParamsRef.current.beatBloomOverride !== null) {
+      guiParamsRef.current.beatBloomOverride = null;
+      syncEffectSnapshot();
+    }
+
     if (stateRef.current.lightingMode === LIGHTING_MODE_SCENE) {
       lightingRigRef.current?.updateSceneLighting({
-        forceRefresh: effectSnapshot.cinematicEnabled && effectSnapshot.bloomEnabled,
+        forceRefresh: beatEnergy > 0 || (effectSnapshot.cinematicEnabled && effectSnapshot.bloomEnabled),
       });
     } else if (stateRef.current.lightingMode === LIGHTING_MODE_PARTICLES) {
       lightingRigRef.current?.updateParticleLighting();

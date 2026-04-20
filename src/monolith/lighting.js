@@ -176,7 +176,11 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
   scene.add(heroSpotLight.target);
 
   let cinematicAmbientIntensity = null;
+  let beatEnergyValue = 0;
   let lastStaticSceneSignature = null;
+
+  const beatColorWarm = new THREE.Color(0xffd9b8);
+  const beatColorCool = new THREE.Color(0xd7ecff);
 
   function resetAllLights() {
     ringLight.intensity = 0;
@@ -243,6 +247,35 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
   function applyCinematicAmbientOverride() {
     if (cinematicAmbientIntensity === null) return;
     ambient.intensity = cinematicAmbientIntensity;
+  }
+
+  function applyBeatEnergyModulation() {
+    if (beatEnergyValue <= 0) return;
+
+    const beat = Math.pow(beatEnergyValue, 0.72);
+
+    // Push the beat through the actual light rig, not just bloom.
+    // Keep ambient changes modest so the model still reads as directional light.
+    ambient.intensity += beat * 1.35;
+
+    // Also pulse the hero spotlight if it's active.
+    if (heroSpotLight.visible) {
+      heroSpotLight.intensity += beat * 14.0;
+      heroSpotLight.color.lerp(beatColorWarm, 0.1 * beat);
+    }
+
+    // Pulse any active scene lights that are already contributing to the model.
+    warmLight.visible = warmLight.visible || beat > 0;
+    coolLight.visible = coolLight.visible || beat > 0;
+    warmLight.intensity += beat * 6.5;
+    coolLight.intensity += beat * 6.5;
+    warmLight.color.lerp(beatColorWarm, 0.16 * beat);
+    coolLight.color.lerp(beatColorCool, 0.16 * beat);
+
+    streetLight1.intensity += beat * 8.5;
+    streetLight2.intensity += beat * 8.5;
+    ringLight.intensity += beat * 7.0;
+    ringLight2.intensity += beat * 7.0;
   }
 
   function getPulse(progress) {
@@ -348,7 +381,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
         RING_TOP - progress * RING_RANGE,
         monolith.position.z + Math.sin(angle) * radius,
       );
-      light.intensity = 1.1 + (pulse * 4.8);
+      light.intensity = (1.1 + (pulse * 4.8)) * (1 + (beatEnergyValue * 2.4));
       light.distance = 9;
       light.color.setHSL((baseHue + phase * 0.08) % 1, saturation, 0.58);
     }
@@ -504,6 +537,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     });
 
     applyCinematicAmbientOverride();
+    applyBeatEnergyModulation();
   }
 
   function updateSceneLighting({ forceRefresh = false } = {}) {
@@ -537,6 +571,7 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
 
     applyAmbientOverrides();
     applyCinematicAmbientOverride();
+    applyBeatEnergyModulation();
   }
 
   function animateBloomRing() {
@@ -559,6 +594,9 @@ export function createLightingRig({ scene, currentSetDef, getCurrentModelIndex, 
     animateBloomRing,
     clearParticleGlow,
     particles,
+    setBeatEnergy: (energy) => {
+      beatEnergyValue = THREE.MathUtils.clamp(energy, 0, 1);
+    },
     setParticleLightingEnabled,
     setCinematicAmbientIntensity: (intensity) => {
       cinematicAmbientIntensity = intensity;

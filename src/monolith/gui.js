@@ -56,6 +56,7 @@ export function createDefaultGuiParams() {
     backgroundColor: '#111111',
     whiteMode: false,
     lightingMode: lightingModes[0],
+    beatBloomOverride: null,
   };
 }
 
