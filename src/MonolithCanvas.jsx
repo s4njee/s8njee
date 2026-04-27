@@ -115,7 +115,7 @@ function createMonolithEffectSnapshot(guiParams, state, glitchTriggerToken) {
     cinematicEnabled: state.currentFx === SHARED_FX_CINEMATIC,
     databendEnabled: state.currentFx === SHARED_FX_DATABEND,
     glitchDuration: guiParams.glitchDuration,
-    glitchEnabled: true,
+    glitchEnabled: false,
     glitchStrength: guiParams.glitchStrength,
     glitchTriggerToken,
     hue: guiParams.hue,
