@@ -477,6 +477,16 @@ function MonolithScene({ modelQuality }) {
     controls.update();
     controlsRef.current = controls;
 
+    // Portrait viewports (phones in portrait): zoom out and shift left to frame
+    // Unit-01 and its label together. The label anchor sits at x=-3 world units,
+    // which lands at NDC ≈ -0.8 on a portrait iPhone at these settings.
+    if (gl.domElement.clientWidth / gl.domElement.clientHeight < 0.9) {
+      camera.fov = 55;
+      camera.position.set(-1, 2, 16);
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
+
     materialManagerRef.current = createMaterialManager(gl);
 
     scene.add(monolithRef.current);
