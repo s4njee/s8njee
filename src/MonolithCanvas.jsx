@@ -351,6 +351,20 @@ function MonolithScene({ modelQuality }) {
     });
   };
 
+  // Advance (direction +1) or rewind (-1) through the active set's models,
+  // wrapping around. Shared by the arrow-key shortcuts and the touch
+  // tap-to-cycle handler. Falls back to the set's default model when nothing
+  // is loaded yet so the first input lands on a deterministic index.
+  const cycleModel = (direction) => {
+    const models = currentModels();
+    if (!models.length) return;
+    const currentIndex = stateRef.current.currentModelIndex >= 0
+      ? stateRef.current.currentModelIndex
+      : (currentSetDef().defaultModel ?? 0);
+    const nextIndex = (currentIndex + direction + models.length) % models.length;
+    loadModel(nextIndex);
+  };
+
   useEffect(() => {
     if (stateRef.current.currentModelIndex > -1) {
       loadModel(stateRef.current.currentModelIndex, { forceReload: true });
@@ -596,15 +610,7 @@ function MonolithScene({ modelQuality }) {
 
       if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
         event.preventDefault();
-        const models = currentModels();
-        if (!models.length) return;
-
-        const currentIndex = stateRef.current.currentModelIndex >= 0
-          ? stateRef.current.currentModelIndex
-          : (currentSetDef().defaultModel ?? 0);
-        const direction = event.key === 'ArrowRight' ? 1 : -1;
-        const nextIndex = (currentIndex + direction + models.length) % models.length;
-        loadModel(nextIndex);
+        cycleModel(event.key === 'ArrowRight' ? 1 : -1);
         return;
       }
 
@@ -646,6 +652,64 @@ function MonolithScene({ modelQuality }) {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
 
+    // ── Tap-to-cycle (touch) ──────────────────────────────────────────────────
+    // A quick single-finger tap on the canvas advances to the next model in the
+    // set, mirroring the ArrowRight shortcut on mobile. A tap is a single touch
+    // pointer that lifts within TAP_TIME_MS having moved less than TAP_MOVE_PX —
+    // this excludes OrbitControls drags (rotation) and multi-touch gestures
+    // (pinch-zoom), which both invalidate the tap. Mouse/pen input is ignored so
+    // desktop click-drag rotation is unaffected.
+    const TAP_MOVE_PX = 10;
+    const TAP_TIME_MS = 300;
+    let tapStartX = 0;
+    let tapStartY = 0;
+    let tapStartTime = 0;
+    let activeTouchPointers = 0;
+    let tapInvalidated = false;
+
+    const onCanvasPointerDown = (event) => {
+      if (event.pointerType !== 'touch') return;
+      activeTouchPointers += 1;
+      if (activeTouchPointers > 1) {
+        tapInvalidated = true; // a second finger means a gesture, not a tap
+        return;
+      }
+      tapStartX = event.clientX;
+      tapStartY = event.clientY;
+      tapStartTime = performance.now();
+      tapInvalidated = false;
+    };
+
+    const onCanvasPointerMove = (event) => {
+      if (event.pointerType !== 'touch' || tapInvalidated) return;
+      if (
+        Math.abs(event.clientX - tapStartX) > TAP_MOVE_PX ||
+        Math.abs(event.clientY - tapStartY) > TAP_MOVE_PX
+      ) {
+        tapInvalidated = true; // moved too far → drag, not a tap
+      }
+    };
+
+    const onCanvasPointerUp = (event) => {
+      if (event.pointerType !== 'touch') return;
+      activeTouchPointers = Math.max(0, activeTouchPointers - 1);
+      const isTap = !tapInvalidated && (performance.now() - tapStartTime) < TAP_TIME_MS;
+      if (isTap && activeTouchPointers === 0) {
+        cycleModel(1);
+      }
+    };
+
+    const onCanvasPointerCancel = (event) => {
+      if (event.pointerType !== 'touch') return;
+      activeTouchPointers = Math.max(0, activeTouchPointers - 1);
+      tapInvalidated = true;
+    };
+
+    gl.domElement.addEventListener('pointerdown', onCanvasPointerDown);
+    gl.domElement.addEventListener('pointermove', onCanvasPointerMove);
+    gl.domElement.addEventListener('pointerup', onCanvasPointerUp);
+    gl.domElement.addEventListener('pointercancel', onCanvasPointerCancel);
+
     switchSet(stateRef.current.currentSetIndex);
     syncEffectSnapshot();
     applySceneAppearance();
@@ -653,6 +717,10 @@ function MonolithScene({ modelQuality }) {
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      gl.domElement.removeEventListener('pointerdown', onCanvasPointerDown);
+      gl.domElement.removeEventListener('pointermove', onCanvasPointerMove);
+      gl.domElement.removeEventListener('pointerup', onCanvasPointerUp);
+      gl.domElement.removeEventListener('pointercancel', onCanvasPointerCancel);
       controls.dispose();
       guiControlsRef.current?.destroy();
       uiRef.current?.destroy();
