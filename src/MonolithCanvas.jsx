@@ -477,14 +477,14 @@ function MonolithScene({ modelQuality }) {
     controls.update();
     controlsRef.current = controls;
 
-    // Portrait viewports (phones in portrait): keep the EVA labels at their wide
-    // x=±6.5 anchors but pull the camera straight back so the full label spread
-    // fits inside the narrow frustum. The pull-back distance is derived from the
-    // live aspect ratio, so x=±LABEL_HALF_SPREAD lands at the frustum edge on any
+    // Portrait viewports (phones in portrait): keep the EVA labels offset to the
+    // sides but pull the camera straight back so the full label spread fits
+    // inside the narrow frustum. The pull-back distance is derived from the live
+    // aspect ratio, so x=±LABEL_HALF_SPREAD lands at the frustum edge on any
     // portrait device while the model stays centered.
     const portraitAspect = gl.domElement.clientWidth / gl.domElement.clientHeight;
     if (portraitAspect < 0.9) {
-      const LABEL_HALF_SPREAD = 7; // x=±6.5 label anchors + margin
+      const LABEL_HALF_SPREAD = 6; // x=±5.5 label anchors + margin
       camera.fov = 55;
       const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
       const distance = LABEL_HALF_SPREAD / (Math.tan(halfFov) * portraitAspect);
