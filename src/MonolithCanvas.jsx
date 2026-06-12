@@ -477,12 +477,18 @@ function MonolithScene({ modelQuality }) {
     controls.update();
     controlsRef.current = controls;
 
-    // Portrait viewports (phones in portrait): zoom out and shift left to frame
-    // Unit-01 and its label together. The label anchor sits at x=-3 world units,
-    // which lands at NDC ≈ -0.8 on a portrait iPhone at these settings.
-    if (gl.domElement.clientWidth / gl.domElement.clientHeight < 0.9) {
+    // Portrait viewports (phones in portrait): keep the EVA labels offset to the
+    // sides but pull the camera straight back so the full label spread fits
+    // inside the narrow frustum. The pull-back distance is derived from the live
+    // aspect ratio, so x=±LABEL_HALF_SPREAD lands at the frustum edge on any
+    // portrait device while the model stays centered.
+    const portraitAspect = gl.domElement.clientWidth / gl.domElement.clientHeight;
+    if (portraitAspect < 0.9) {
+      const LABEL_HALF_SPREAD = 6; // x=±5.5 label anchors + margin
       camera.fov = 55;
-      camera.position.set(-1, 2, 16);
+      const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+      const distance = LABEL_HALF_SPREAD / (Math.tan(halfFov) * portraitAspect);
+      camera.position.set(0, 2.5, distance);
       camera.updateProjectionMatrix();
       controls.update();
     }

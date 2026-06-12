@@ -91,7 +91,7 @@ export function createOverlays(scene) {
     font: resolveAssetUrl('/fonts/evangelion.ttf'),
     fontSize: 0.4,
     letterSpacing: 0.08,
-    position: [-3, 1.2, 0],
+    position: [-5.5, 1.2, 0],
   });
   const evaSubtitle = createText({
     text: 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN',
@@ -99,7 +99,7 @@ export function createOverlays(scene) {
     fontSize: 0.13,
     letterSpacing: 0.04,
     anchorY: 'top',
-    position: [-3, 1.15, 0],
+    position: [-5.5, 1.15, 0],
     opacity: 0.6,
   });
   const evaJpText = createText({
@@ -108,7 +108,7 @@ export function createOverlays(scene) {
     fontSize: 0.13,
     letterSpacing: 0.02,
     anchorY: 'top',
-    position: [-3, 1.0, 0],
+    position: [-5.5, 1.0, 0],
     opacity: 0.6,
   });
   const eva02Title = createText({
@@ -117,7 +117,7 @@ export function createOverlays(scene) {
     fontSize: 0.4,
     letterSpacing: 0.08,
     anchorX: 'right',
-    position: [3, 1.2, 0],
+    position: [5.5, 1.2, 0],
   });
   const eva02Subtitle = createText({
     text: 'MULTIPURPOSE HUMANOID DECISIVE WEAPON, ARTIFICIAL HUMAN',
@@ -126,7 +126,7 @@ export function createOverlays(scene) {
     letterSpacing: 0.04,
     anchorX: 'right',
     anchorY: 'top',
-    position: [3, 1.15, 0],
+    position: [5.5, 1.15, 0],
     opacity: 0.6,
   });
   const eva02JpText = createText({
@@ -136,7 +136,7 @@ export function createOverlays(scene) {
     letterSpacing: 0.02,
     anchorX: 'right',
     anchorY: 'top',
-    position: [3, 1.0, 0],
+    position: [5.5, 1.0, 0],
     opacity: 0.6,
   });
 
